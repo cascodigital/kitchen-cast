@@ -1,0 +1,6 @@
+.env
+*.env
+ytmusic_auth.json
+oauth.json
+__pycache__/
+*.pyc

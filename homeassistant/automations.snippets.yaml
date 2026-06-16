@@ -1,0 +1,54 @@
+# Trechos para o automations.yaml.
+# media_player.SALA   = seu Chromecast Audio (gatilho, onde a musica toca)
+# media_player.COZINHA = seu Chromecast na TV (onde a imagem aparece)
+# Os scripts slideshow_foto_atual / _force fazem media_player.play_media da imagem
+# http://HA_HOST:8123/local/current.jpg?t=<timestamp> no media_player.COZINHA.
+
+# ENTRA no modo musica quando a sala comeca a tocar
+- id: musica_slideshow_start
+  alias: Slideshow - Modo Musica (sala tocando)
+  triggers:
+  - {trigger: state, entity_id: media_player.SALA, to: playing}
+  - {trigger: state, entity_id: media_player.SALA, attribute: media_content_id}
+  - {trigger: state, entity_id: media_player.SALA, attribute: media_title}
+  - {trigger: state, entity_id: media_player.SALA, attribute: media_artist}
+  conditions:
+  - {condition: state, entity_id: media_player.SALA, state: playing}
+  actions:
+  - {delay: {seconds: 4}}                                  # deixa a metadata estabilizar
+  - {action: homeassistant.update_entity, target: {entity_id: sensor.music_state_writer}}
+  - {delay: {seconds: 1}}
+  - {action: shell_command.start_musica_slideshow}
+  - {delay: {seconds: 4}}
+  - {action: script.slideshow_foto_atual_force}           # 1o push da capa pra TV
+  - {delay: {seconds: 12}}
+  - {action: script.slideshow_foto_atual_force}           # 2o push: evita "uma musica atras"
+  mode: restart
+
+# VOLTA pro album de fotos quando a sala para
+- id: musica_slideshow_stop
+  alias: Slideshow - Voltar para fotos (sala parou)
+  triggers:
+  - {trigger: state, entity_id: media_player.SALA, to: ["paused","idle","off","unavailable"]}
+  actions:
+  - {action: shell_command.stop_musica_slideshow}
+  - {delay: {seconds: 1}}
+  - {action: shell_command.start_slideshow_gen}
+  mode: single
+
+# DESARMA a receita: janela de 30min expirou sem play, ou cozinha encerrou (sala parada 15min)
+- id: recipe_disarm
+  alias: Receita - desarmar
+  triggers:
+  - {trigger: event, event_type: timer.finished, event_data: {entity_id: timer.recipe_window}}
+  - {trigger: state, entity_id: media_player.SALA, to: ["idle","off","unavailable"], for: "00:15:00"}
+  conditions:
+  - {condition: state, entity_id: input_boolean.recipe_armed, state: "on"}
+  - condition: not
+    conditions:
+    - {condition: state, entity_id: media_player.SALA, state: playing}
+  actions:
+  - {action: shell_command.disarm_music_recipe}
+  - {action: input_boolean.turn_off, target: {entity_id: input_boolean.recipe_armed}}
+  - {action: timer.cancel, target: {entity_id: timer.recipe_window}}
+  mode: single

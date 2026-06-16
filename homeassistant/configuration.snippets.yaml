@@ -1,0 +1,30 @@
+# Trechos para o configuration.yaml do Home Assistant.
+# Troque HA_HOST pelo IP/host do seu HA e APP_HOST:8095 pelo host onde roda o kitchen-cast.
+
+shell_command:
+  # mata o modo musica e religa o gerador de fotos (estado base)
+  start_slideshow_gen: "pkill -f '[m]usica_slideshow.py' 2>/dev/null; nohup python3 /config/slideshow_gen.py >/dev/null 2>&1 &"
+  stop_musica_slideshow: "pkill -f '[m]usica_slideshow.py' 2>/dev/null; true"
+  start_musica_slideshow: "python3 /config/start_musica_helper.py >/tmp/musica_helper.log 2>&1"
+  # arme da receita: puxa a receita pendente do app web e grava como arquivo ativo
+  fetch_music_recipe: "curl -sf http://APP_HOST:8095/api/pending_recipe -o /config/music_recipe.json"
+  disarm_music_recipe: "rm -f /config/music_recipe.json"
+
+command_line:
+  # escreve o estado da musica num arquivo (shell_command nao renderiza Jinja2; command_line sim)
+  - sensor:
+      name: "music_state_writer"
+      unique_id: music_state_writer
+      command: "echo '{{ states(\"media_player.SALA\") }}|{{ state_attr(\"media_player.SALA\", \"media_content_id\") | default(\"\") }}|{{ state_attr(\"media_player.SALA\", \"media_artist\") | default(\"\") | replace(\"'\", \"\") }}|{{ state_attr(\"media_player.SALA\", \"media_title\") | default(\"\") | replace(\"'\", \"\") }}|{{ state_attr(\"media_player.SALA\", \"entity_picture\") | default(\"\") }}|{{ state_attr(\"media_player.SALA\", \"media_album_name\") | default(\"\") | replace(\"'\", \"\") }}' | tee /config/.music_state.txt"
+      scan_interval: 10
+
+# helpers para o arme de receita
+timer:
+  recipe_window:
+    name: Janela de receita
+    duration: "00:30:00"
+    restore: true
+
+input_boolean:
+  recipe_armed:
+    name: Receita armada na TV

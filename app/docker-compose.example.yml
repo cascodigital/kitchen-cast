@@ -1,0 +1,23 @@
+services:
+  kitchen-cast:
+    build: .
+    image: kitchen-cast:latest
+    container_name: kitchen-cast
+    restart: unless-stopped
+    environment:
+      - TZ=Etc/UTC
+      - HASS_URL=http://homeassistant.local:8123
+      - HASS_TOKEN=${HASS_TOKEN}
+      - WORKER_CONTAINER=claude-worker          # nome do seu container Claude Code headless
+      - YTM_MCP_CONFIG=/home/claude/ai/mcp/youtube-music/mcp-config.json
+      - YTM_AUTH_FILE=/auth/ytmusic_auth.json
+      - RECIPES_DIR=/recipes
+    volumes:
+      # suas receitas (.txt, um arquivo por receita), montadas read-only
+      - /CAMINHO/PARA/suas/receitas:/recipes:ro
+      # socket do docker, para 'docker exec' no worker que cria a playlist
+      - /var/run/docker.sock:/var/run/docker.sock
+      # auth do YouTube Music (ytmusicapi) para listar playlists existentes
+      - /CAMINHO/PARA/ytmusic_auth.json:/auth/ytmusic_auth.json:ro
+    ports:
+      - "8095:8000"
