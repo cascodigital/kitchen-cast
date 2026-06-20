@@ -2,7 +2,7 @@
 cozinha — atendente de cozinha.
 Lista receitas (fonte live: skcoz/receitas montado RO), recebe instrucoes pro Rolo,
 arma a receita no HASS (modo musica) e delega a curadoria da playlist ao claude-worker.
-Andre escolhe a receita, manda, ve o link da playlist pronta e da play.
+User escolhe a receita, manda, ve o link da playlist pronta e da play.
 """
 import os
 import re
@@ -29,7 +29,7 @@ QUICK_COUNT = int(os.environ.get("QUICK_COUNT", "5"))
 
 app = FastAPI(title="cozinha")
 
-# estado em memoria (1 worker uvicorn, 1 cozinha, 1 Andre)
+# estado em memoria (1 worker uvicorn, 1 usuario)
 JOBS = {}                      # job_id -> dict
 PENDING_RECIPE = {"json": None}  # ultima receita armada, servida ao HASS via curl
 _PL_CACHE = {"ts": 0, "items": []}  # cache da biblioteca de playlists do YT Music
@@ -157,10 +157,10 @@ ID_RE = re.compile(r"\b((?:PL|VL|RDCL)[\w-]{10,}|list=([\w-]{10,}))\b")
 def make_playlist(title: str, instructions: str) -> str:
     vibe = instructions.strip() or "escolha pela vibe da receita e pela hora do dia"
     prompt = (
-        f"Voce e o Rolo, DJ. Crie UMA playlist no YouTube Music para o Andre cozinhar '{title}'. "
+        f"Voce e o Rolo, DJ. Crie UMA playlist no YouTube Music para cozinhar '{title}'. "
         f"Vibe pedida: {vibe}. "
         "Use mcp__youtube-music__search_songs e get_recommendations para escolher ~15 faixas coerentes "
-        "com a vibe e o DNA do Andre (rock/metal anos 2000 como base, mas respeite o pedido). "
+        "com a vibe pedida e o historico musical disponivel; respeite o pedido do usuario. "
         f"Crie com mcp__youtube-music__create_playlist (titulo 'Cozinha: {title}') e adicione as faixas "
         "com add_playlist_items. Ao terminar responda SOMENTE a URL no formato "
         "https://music.youtube.com/playlist?list=<id> , nada mais."

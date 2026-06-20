@@ -8,10 +8,10 @@ import os, sys, time, signal, json, random, datetime
 import urllib.request, urllib.parse, urllib.error
 from io import BytesIO
 
-LAT, LON = float(os.environ.get("WEATHER_LAT","40.7128")), float(os.environ.get("WEATHER_LON","-74.0060"))  # defina suas coordenadas
+LAT, LON = float(os.environ.get("WEATHER_LAT","40.7128")), float(os.environ.get("WEATHER_LON","-74.0060"))  # placeholder; set your coordinates
 
 try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
 except ImportError:
     sys.exit("[musica] PIL não encontrado")
 
@@ -208,62 +208,190 @@ def fit_fill(img, w, h):
     return img.crop((x, y, x + w, y + h))
 
 
-def make_frame(bg_img, artist, title, album="", current_temp=None):
-    canvas = fit_fill(bg_img.copy(), IMG_W, IMG_H)
+def _brighten(c, target=235):
+    """Sobe o brilho da cor mantendo o matiz, para legibilidade sobre scrim escuro."""
+    mx = max(c) or 1
+    f = target / mx
+    return tuple(min(255, int(v * f)) for v in c)
+
+
+def dominant_color(img, default=ACCENT_YELLOW):
+    """Extrai a cor de destaque da capa: a mais frequente que não seja escura nem cinza."""
+    try:
+        small = img.convert("RGB").resize((80, 80))
+        q = small.quantize(colors=8, method=Image.FASTOCTREE)
+        pal = q.getpalette()
+        for count, idx in sorted(q.getcolors(), reverse=True):
+            r, g, b = pal[idx * 3: idx * 3 + 3]
+            if max(r, g, b) < 60:                  # escura demais
+                continue
+            if max(r, g, b) - min(r, g, b) < 40:   # cinza demais
+                continue
+            return _brighten((r, g, b))
+    except Exception as e:
+        print(f"[cor] fallback: {e}")
+    return default
+
+
+def blurred_background(img, blur=38, darken=70):
+    """Fundo cinematográfico: capa em tela cheia, desfoque pesado e véu escuro."""
+    bg = fit_fill(img.copy(), IMG_W, IMG_H).filter(ImageFilter.GaussianBlur(blur))
+    canvas = bg.convert("RGBA")
+    canvas.alpha_composite(Image.new("RGBA", (IMG_W, IMG_H), (8, 8, 14, darken)))
+    return canvas
+
+
+def rounded_card(canvas, img, box, radius=24, shadow_blur=24, accent=None):
+    """Cola a imagem como card arredondado com drop shadow e borda sutil."""
+    x, y, w, h = box
+    card = fit_fill(img.copy(), w, h).convert("RGBA")
+
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=255)
+
+    sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sh).rounded_rectangle(
+        [x - 6, y + 10, x + w + 6, y + h + 14], radius=radius + 6, fill=(0, 0, 0, 180))
+    canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(shadow_blur)))
+
+    canvas.paste(card, (x, y), mask)
+    border = accent + (110,) if accent else (255, 255, 255, 55)
+    ImageDraw.Draw(canvas, "RGBA").rounded_rectangle(
+        [x, y, x + w - 1, y + h - 1], radius=radius, outline=border, width=2)
+
+
+def draw_soft_text(canvas, pos, text, font, fill=(255, 255, 255),
+                   shadow_alpha=190, blur=6, offset=(0, 3)):
+    """Texto com sombra real (camada borrada) em vez de sombra de pixel dura."""
+    x, y = pos
+    sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sh).text((x + offset[0], y + offset[1]), text, font=font,
+                            fill=(0, 0, 0, shadow_alpha))
+    canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(blur)))
+    if len(fill) == 3:
+        fill = fill + (255,)
+    ImageDraw.Draw(canvas, "RGBA").text((x, y), text, font=font, fill=fill)
+
+
+def ellipsize(text, font, max_w):
+    """Corta o texto com reticências se passar de max_w."""
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    if probe.textlength(text, font=font) <= max_w:
+        return text
+    while text and probe.textlength(text + "…", font=font) > max_w:
+        text = text[:-1]
+    return (text.rstrip() + "…") if text else ""
+
+
+# Layout "dois quadrados": capa e (opcional) receita lado a lado, mesmo tamanho.
+SQUARE = 650          # lado dos quadrados
+SQUARE_Y = 150        # topo dos quadrados (abaixo do relógio)
+SQUARE_GAP = 70       # folga entre capa e receita
+
+
+def draw_clock(canvas, accent, current_temp):
     draw = ImageDraw.Draw(canvas, "RGBA")
-
-    # Gradiente escuro na parte de baixo
-    for i in range(320):
-        alpha = int(220 * (i / 320))
-        draw.rectangle([(0, IMG_H - 320 + i), (IMG_W, IMG_H - 320 + i + 1)],
-                       fill=(0, 0, 0, alpha))
-
-    # Gradiente suave no topo
-    for i in range(80):
-        alpha = int(120 * (1 - i / 80))
-        draw.rectangle([(0, i), (IMG_W, i + 1)], fill=(0, 0, 0, alpha))
-
-    DIAS = ["Seg","Ter","Qua","Qui","Sex","Sab","Dom"]
-    now  = datetime.datetime.now()
+    DIAS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
+    now = datetime.datetime.now()
     hora = now.strftime("%H:%M")
     data_lbl = f"{DIAS[now.weekday()]}, {now.day}"
-    f_hora = get_font(bold=True,  size=78)
-    f_data = get_font(bold=False, size=42)
+    f_hora = get_font(True, 78)
+    f_data = get_font(False, 42)
     hora_w = draw.textlength(hora, font=f_hora)
-    shadow(draw, (48, 30), hora, f_hora)
-    shadow(draw, (48 + hora_w + 24, 52), data_lbl, f_data)
+    draw_soft_text(canvas, (48, 30), hora, f_hora)
+    draw_soft_text(canvas, (48 + hora_w + 24, 52), data_lbl, f_data, fill=(225, 225, 225))
     if current_temp is not None:
-        temp_str = f"{round(current_temp)}°"
-        f_temp = get_font(bold=True, size=42)
         data_w = draw.textlength(data_lbl, font=f_data)
-        shadow(draw, (48 + hora_w + 24 + data_w + 18, 52), temp_str, f_temp, color=ACCENT_YELLOW)
+        draw_soft_text(canvas, (48 + hora_w + 24 + data_w + 18, 52),
+                       f"{round(current_temp)}°", get_font(True, 42), fill=accent)
 
-    y_base = IMG_H - 210
 
-    # ♪ ícone
-    shadow(draw, (55, y_base), "♪", get_font(True, 54), color=(255, 200, 50))
+def centered_text(canvas, cx, y, text, font, fill, blur=6):
+    w = ImageDraw.Draw(canvas).textlength(text, font=font)
+    draw_soft_text(canvas, (int(cx - w / 2), y), text, font, fill=fill, blur=blur)
 
-    # Artista
-    shadow(draw, (130, y_base), artist, get_font(True, 58), color=(255, 255, 255))
 
-    # Título
-    shadow(draw, (130, y_base + 72), title, get_font(False, 42), color=(210, 210, 210))
+def draw_bottom_bar(canvas, accent, artist, title, album):
+    """Barra preta inferior com 'tocando agora' centralizado."""
+    draw = ImageDraw.Draw(canvas, "RGBA")
+    for i in range(220):
+        a = int(205 * (i / 220) ** 1.3)
+        draw.rectangle([(0, IMG_H - 220 + i), (IMG_W, IMG_H - 220 + i + 1)], fill=(0, 0, 0, a))
+    cx, yb = IMG_W // 2, IMG_H - 168
+    sub = f"{title}  ·  {album}" if (title and album) else (title or album)
+    centered_text(canvas, cx, yb, "♫ TOCANDO AGORA", get_font(False, 24), accent, blur=4)
+    centered_text(canvas, cx, yb + 34, ellipsize(artist, get_font(True, 50), IMG_W - 120),
+                  get_font(True, 50), (255, 255, 255), blur=6)
+    if sub:
+        centered_text(canvas, cx, yb + 98, ellipsize(sub, get_font(False, 30), IMG_W - 120),
+                      get_font(False, 30), (224, 224, 224))
 
-    # Album
-    if album:
-        shadow(draw, (130, y_base + 130), album, get_font(False, 28), color=ACCENT_YELLOW)
 
-    # Label "AO VIVO" no canto superior direito
-    label = "♫ TOCANDO AGORA"
-    f_label = get_font(False, 26)
-    lw = draw.textlength(label, font=f_label)
-    shadow(draw, (IMG_W - lw - 50, 28), label, f_label, color=(255, 200, 50))
+def fit_recipe(probe, recipe, max_w, max_h):
+    """Maior fonte (31→20) em que título + linhas (com wrap) cabem na altura."""
+    for body in range(31, 19, -1):
+        title_px = int(body * 1.32)
+        bf = get_font(False, body)
+        line_h = int(body * 1.55)
+        wrapped = []
+        for ln in recipe["lines"]:
+            wrapped += wrap_line(probe, "•  " + ln, bf, max_w)
+        if int(title_px * 1.7) + len(wrapped) * line_h <= max_h:
+            return get_font(True, title_px), bf, line_h, title_px, wrapped
+    # piso de 20px: ainda estoura → corta e marca o excedente
+    body = 20
+    title_px = int(body * 1.32)
+    bf = get_font(False, body)
+    line_h = int(body * 1.55)
+    wrapped = []
+    for ln in recipe["lines"]:
+        wrapped += wrap_line(probe, "•  " + ln, bf, max_w)
+    fit = max((max_h - int(title_px * 1.7)) // line_h - 1, 0)
+    extra = len(wrapped) - fit
+    return get_font(True, title_px), bf, line_h, title_px, wrapped[:fit] + [f"… +{extra} passos"]
+
+
+def draw_recipe_square(canvas, box, recipe, accent):
+    x, y, w, h = box
+    ImageDraw.Draw(canvas, "RGBA").rounded_rectangle(
+        [x, y, x + w, y + h], radius=26, fill=(0, 0, 0, 150),
+        outline=accent + (120,), width=2)
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    pad = 38
+    tf, bf, line_h, title_px, lines = fit_recipe(probe, recipe, w - 2 * pad, h - 2 * pad)
+    px, py = x + pad, y + 30
+    draw_soft_text(canvas, (px, py), recipe["title"], tf, fill=(255, 255, 255))
+    py += int(title_px * 1.7)
+    for ln in lines:
+        draw_soft_text(canvas, (px, py), ln, bf, fill=(238, 238, 238), blur=4)
+        py += line_h
+
+
+def make_frame(bg_img, artist, title, album="", current_temp=None):
+    accent = dominant_color(bg_img)
+    canvas = blurred_background(bg_img, blur=46, darken=110)
+    draw = ImageDraw.Draw(canvas, "RGBA")
+
+    # Scrim superior suave para o relógio
+    for i in range(110):
+        draw.rectangle([(0, i), (IMG_W, i + 1)], fill=(0, 0, 0, int(130 * (1 - i / 110))))
+    draw_clock(canvas, accent, current_temp)
 
     recipe = load_recipe_overlay()
     if recipe:
-        draw_recipe_overlay(draw, recipe)
+        # Dois quadrados iguais: capa (esquerda) + receita (direita)
+        lx = (IMG_W - (2 * SQUARE + SQUARE_GAP)) // 2
+        rounded_card(canvas, bg_img, (lx, SQUARE_Y, SQUARE, SQUARE), radius=26, accent=accent)
+        draw_recipe_square(canvas, (lx + SQUARE + SQUARE_GAP, SQUARE_Y, SQUARE, SQUARE),
+                           recipe, accent)
+    else:
+        # Sem receita: capa centralizada
+        cx = (IMG_W - SQUARE) // 2
+        rounded_card(canvas, bg_img, (cx, SQUARE_Y, SQUARE, SQUARE), radius=26, accent=accent)
 
-    canvas.save(TMP_FILE, "JPEG", quality=90)
+    draw_bottom_bar(canvas, accent, artist, title, album)
+
+    canvas.convert("RGB").save(TMP_FILE, "JPEG", quality=92)
     os.replace(TMP_FILE, OUT_FILE)
 
 

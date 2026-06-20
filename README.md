@@ -2,9 +2,18 @@
 
 Turn a kitchen TV into an ambient photo frame that **becomes a music + recipe display the moment you play music** — and lets an AI build the cooking playlist for you.
 
+This repository is a **reference implementation**, not a one-click product. It is intentionally written so a strong coding agent can understand the system, replace the home-specific adapters, and port the idea to another Home Assistant + Chromecast setup.
+
 You play music on a speaker. A *different* screen in another room notices, flips from your photo slideshow to the album art of whatever is playing, and (optionally) overlays the recipe you're about to cook. An AI DJ assembles a fitting YouTube Music playlist in the background. You press play; the food and the music both show up where you're cooking.
 
 No app to open mid-cook. No phone propped against the flour bag. Music is the trigger; everything else follows.
+
+![Kitchen Cast music mode with recipe overlay](preview/_prod_com_receita.jpg)
+
+<p align="center">
+  <img src="preview/_prod_sem_receita.jpg" alt="Music mode without recipe overlay" width="49%">
+  <img src="preview/opcao_E_receita_longa.jpg" alt="Recipe overlay stress test" width="49%">
+</p>
 
 ---
 
@@ -35,6 +44,22 @@ It's a **two-state machine on a Chromecast-connected TV**, plus an optional reci
 - **Music mode** takes over automatically when your speaker starts playing, and reverts when it stops. Nothing manual.
 - **The recipe overlay** is opt-in: you "arm" a recipe (by chat or via the web app), and it rides on top of music mode for one cooking session, then disarms itself.
 
+## Why this is a little absurd
+
+This is not "a recipe app". It is a small home-lab Rube Goldberg machine that happens to be useful while cooking:
+
+- a Home Assistant box renders JPEG frames with PIL;
+- a Chromecast-connected kitchen TV displays one changing `current.jpg`;
+- a separate Chromecast Audio acts as the trigger;
+- Home Assistant reads live track metadata and starts the music renderer;
+- the music renderer pulls album art and redraws the TV frame;
+- a recipe website arms a TV-optimized recipe overlay;
+- a headless AI worker creates a YouTube Music playlist from the selected recipe and vibe;
+- the recipe disarms itself after the session;
+- the TV falls back to family photos when the music stops.
+
+The important part is that the chaos is intentionally split into small contracts. A strong coding agent can port the system by replacing adapters, not by reverse-engineering one giant ball of automation spaghetti.
+
 ## The pieces
 
 | Piece | Role | Where it runs |
@@ -45,6 +70,38 @@ It's a **two-state machine on a Chromecast-connected TV**, plus an optional reci
 | `homeassistant/*.yaml` | The state machine: triggers on the speaker, casts the image, arms/disarms recipes | Home Assistant config |
 | `app/` | **Web app**: pick a recipe, set a vibe, arm it + get a playlist | any Docker host |
 | (your AI worker) | Headless LLM that curates the YouTube Music playlist | any Docker host |
+
+## Repository map
+
+| Path | What is in it |
+|---|---|
+| `app/` | FastAPI web app for recipes, playlist jobs, quick playlist shortcuts, and `/api/pending_recipe` |
+| `homeassistant/` | Sanitized YAML snippets for shell commands, command-line sensors, timers, booleans, and automations |
+| `slideshow/` | Photo renderer, music renderer, and music helper scripts |
+| `docs/AI_PORTING_GUIDE.md` | Step-by-step guide for another AI/coder to adapt the build |
+| `docs/SYSTEM_CONTRACTS.md` | File formats, routes, entity placeholders, timing invariants, and security boundaries |
+| `docs/ARCHITECTURE.md` | Full data flow and implementation gotchas |
+| `preview/` | Real/generated preview frames used to judge TV layout |
+| `design/` | Extracted UI components and visual tokens from the recipe web app |
+| `examples/` | Small portable examples, including an active recipe JSON |
+
+## If you're using an AI to port this
+
+Start here:
+
+1. [`docs/AI_PORTING_GUIDE.md`](docs/AI_PORTING_GUIDE.md) — the task brief for an AI agent.
+2. [`docs/SYSTEM_CONTRACTS.md`](docs/SYSTEM_CONTRACTS.md) — file formats, service contracts, entity placeholders, and invariants.
+3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the full data flow and Chromecast gotchas.
+4. `homeassistant/*.yaml` — sanitized snippets to adapt.
+5. `app/docker-compose.example.yml` — web app runtime shape.
+
+The most important rule: **do not redesign the system first**. Port the adapters around the existing contracts:
+
+- One displayed image: `/config/www/current.jpg`
+- One music metadata file: `/config/.music_state.txt`
+- One active recipe file: `/config/music_recipe.json`
+- One TV display target: a Chromecast-capable `media_player`
+- One music trigger target: a different `media_player`
 
 ## How a cook works (the web app)
 
@@ -72,4 +129,6 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full data flow and th
 
 ## Status
 
-Personal project, built incrementally and developed over time. Expect rough edges and opinions baked in. Roadmap in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Personal lab project, built incrementally and developed over time. The repository is meant to be readable, adaptable, and honest about the hard parts. It is not maintained as a generic installer. Roadmap in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+The repo includes screenshots and design artifacts because this project makes more sense when you can see the kitchen TV, not just read YAML and pretend that is emotionally healthy.

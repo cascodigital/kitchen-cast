@@ -1,5 +1,7 @@
 # Architecture
 
+For an implementation-oriented checklist, read [`AI_PORTING_GUIDE.md`](AI_PORTING_GUIDE.md). For exact file, route, and entity contracts, read [`SYSTEM_CONTRACTS.md`](SYSTEM_CONTRACTS.md).
+
 ## The core idea: one image file, two renderers
 
 The Chromecast on the TV is dumb — it just displays one URL: `current.jpg`, refreshed with a cache-busting `?t=<timestamp>`. Everything is about **who writes `current.jpg`**.
@@ -60,6 +62,19 @@ The app also lists existing playlists (via `ytmusicapi`) and offers 5 random "pl
 ## Why no SSH key in the web app
 
 The web app may be internet-exposed. Writing the recipe file onto the Home Assistant host would normally need SSH. Instead, **Home Assistant pulls**: a `shell_command` does `curl http://APP_HOST/api/pending_recipe -o /config/music_recipe.json`. The app holds only a Home Assistant REST token, never an SSH key. Smaller blast radius if the app is ever compromised.
+
+## Adaptation surface
+
+Most target-home changes should be limited to these surfaces:
+
+- Home Assistant entity ids in `homeassistant/*.yaml`
+- Home Assistant/app hostnames
+- photo folder path and recipe folder path
+- weather coordinates
+- AI worker command and music-provider auth
+- visual layout preferences in `musica_slideshow.py`
+
+Avoid changing the contracts first. The system stays understandable because the contracts are small: one image file, one music metadata file, one active recipe file, and Home Assistant as the state machine.
 
 ## Gotchas learned the hard way
 

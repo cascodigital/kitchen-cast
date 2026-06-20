@@ -1,0 +1,128 @@
+<!-- @dsCard group="Navigation" -->
+<!doctype html><html lang=pt><head><meta charset=utf-8>
+<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>
+<meta name=theme-color content='#17120f'>
+<style>
+@font-face{font-family:'Inter';font-style:normal;font-weight:400 700;font-display:swap;src:url('../../fonts/inter.woff2') format('woff2')}@font-face{font-family:'Fraunces';font-style:normal;font-weight:500 700;font-display:swap;src:url('../../fonts/fraunces.woff2') format('woff2')}
+:root{
+  color-scheme:dark;
+  --bg:#17120f; --card:#221b16; --card2:#2a2019; --line:#3a2e25;
+  --cream:#f5ede1; --muted:#b3a294; --honey:#f5b13d; --honey2:#ffce6b;
+  --coral:#ff5d4e; --grape:#c2a9ff; --grape-bg:#241d2f; --grape-line:#3c3052;
+  --serif:'Fraunces',Georgia,'Times New Roman',serif;
+  --sans:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:var(--sans);margin:0;color:var(--cream);
+  background:
+    radial-gradient(1100px 480px at 50% -8%, rgba(245,177,61,.14), transparent 60%),
+    radial-gradient(700px 400px at 90% 0%, rgba(255,93,78,.08), transparent 55%),
+    var(--bg);
+  background-attachment:fixed;min-height:100vh;
+  line-height:1.5;letter-spacing:.1px;
+}
+a{-webkit-tap-highlight-color:transparent}
+header{
+  position:sticky;top:0;z-index:10;
+  padding:16px 20px;display:flex;align-items:center;justify-content:space-between;
+  background:rgba(23,18,15,.78);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line);
+}
+header .brand{font-family:var(--serif);font-weight:700;font-size:21px;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+header .brand .dot{font-size:20px}
+header a.nav{color:var(--honey);text-decoration:none;font-size:14px;font-weight:600;opacity:.9}
+.wrap{max-width:640px;margin:0 auto;padding:22px 18px calc(40px + env(safe-area-inset-bottom))}
+.tagline{font-family:var(--serif);font-size:26px;font-weight:600;margin:6px 0 2px}
+.sub{color:var(--muted);font-size:14px;margin:0 0 20px}
+.muted{color:var(--muted);font-size:13px}
+.ok{color:#86d68a}.err{color:#ff9b90}
+
+/* grid de receitas */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(146px,1fr));gap:13px}
+.card{
+  position:relative;display:flex;flex-direction:column;gap:8px;
+  background:linear-gradient(180deg,var(--card2),var(--card));
+  border:1px solid var(--line);border-radius:18px;padding:18px 16px;
+  text-decoration:none;color:var(--cream);
+  transition:transform .12s ease,border-color .15s ease,box-shadow .15s ease;
+  box-shadow:0 1px 0 rgba(255,255,255,.02) inset;
+}
+.card .emj{font-size:34px;line-height:1}
+.card .ttl{font-weight:600;font-size:15.5px}
+.card .go{color:var(--muted);font-size:12px;margin-top:auto}
+.card:hover{transform:translateY(-3px);border-color:rgba(245,177,61,.55);box-shadow:0 10px 26px -14px rgba(245,177,61,.4)}
+.card:active{transform:scale(.98)}
+
+/* pagina da receita */
+.back{display:inline-block;color:var(--muted);text-decoration:none;font-size:14px;margin-bottom:10px}
+.rtitle{font-family:var(--serif);font-weight:700;font-size:30px;line-height:1.1;margin:2px 0 16px;display:flex;align-items:center;gap:12px}
+.rtitle .emj{font-size:30px}
+.ficha{
+  background:linear-gradient(180deg,#241d17,#1f1813);
+  border:1px solid var(--line);border-radius:16px;padding:6px 18px;margin:0 0 26px;
+  box-shadow:0 16px 40px -28px rgba(0,0,0,.8);
+}
+.ficha ul{list-style:none;margin:0;padding:0}
+.ficha li{padding:11px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:15px;padding-left:18px;position:relative}
+.ficha li:last-child{border-bottom:0}
+.ficha li::before{content:'';position:absolute;left:0;top:18px;width:6px;height:6px;border-radius:50%;background:var(--honey);opacity:.8}
+.section{font-family:var(--serif);font-size:19px;font-weight:600;margin:0 0 6px;display:flex;align-items:center;gap:8px}
+label.lbl{display:block;color:var(--muted);font-size:13.5px;margin:0 0 9px}
+textarea{
+  width:100%;min-height:88px;resize:vertical;background:#1b1510;color:var(--cream);
+  border:1px solid var(--line);border-radius:14px;padding:13px 14px;font:inherit;font-size:16px;
+  transition:border-color .15s,box-shadow .15s;
+}
+textarea::placeholder{color:#7c6e60}
+textarea:focus{outline:0;border-color:var(--honey);box-shadow:0 0 0 3px rgba(245,177,61,.18)}
+button{
+  width:100%;margin-top:13px;padding:16px;border:0;border-radius:14px;cursor:pointer;
+  background:linear-gradient(180deg,var(--honey2),var(--honey));color:#2a1d05;
+  font:inherit;font-size:16.5px;font-weight:700;letter-spacing:.2px;
+  box-shadow:0 10px 24px -12px rgba(245,177,61,.7);transition:transform .1s,filter .15s;
+}
+button:hover{filter:brightness(1.04)}
+button:active{transform:scale(.985)}
+.or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px;margin:26px 0 12px;text-transform:uppercase;letter-spacing:.14em}
+.or::before,.or::after{content:'';flex:1;height:1px;background:var(--line)}
+
+/* atalhos de playlist */
+.quickwrap{display:flex;flex-direction:column;gap:9px}
+.quick{
+  display:flex;align-items:center;gap:13px;
+  background:var(--grape-bg);border:1px solid var(--grape-line);border-radius:13px;
+  padding:12px 14px;color:#ece4ff;text-decoration:none;font-weight:600;font-size:15px;
+  transition:transform .1s,border-color .15s,background .15s;
+}
+.quick .pb{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+  background:linear-gradient(180deg,#7c5cff,#5e3fe0);color:#fff;font-size:13px;box-shadow:0 6px 14px -6px rgba(124,92,255,.8)}
+.quick .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.quick .ch{color:var(--grape);opacity:.6}
+.quick:hover{border-color:rgba(124,92,255,.6);background:#28203a}
+.quick:active{transform:scale(.99)}
+
+/* status / cook */
+.statebox{
+  background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);
+  border-radius:18px;padding:26px 20px;text-align:center;
+}
+.spinner{width:54px;height:54px;margin:4px auto 16px;border-radius:50%;
+  border:5px solid rgba(245,177,61,.16);border-top-color:var(--honey);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.statebox .step{font-size:15.5px;color:var(--cream)}
+.hint{color:var(--muted);font-size:13px;margin-top:14px}
+.result{margin-top:14px}
+.done-emoji{font-size:40px}
+.play{
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  background:linear-gradient(180deg,#ff6f60,var(--coral));color:#fff;
+  padding:17px;border-radius:15px;text-decoration:none;font-weight:700;font-size:17.5px;margin-top:14px;
+  box-shadow:0 14px 30px -12px rgba(255,93,78,.7);transition:transform .1s,filter .15s;
+}
+.play:hover{filter:brightness(1.05)}
+.play:active{transform:scale(.985)}
+.badge{display:inline-flex;align-items:center;gap:6px;background:rgba(134,214,138,.12);color:#9bdd9e;
+  border:1px solid rgba(134,214,138,.3);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;margin-top:6px}
+</style><title>Header</title></head><body><header><div class=brand><span class=dot>🍳</span> cozinha</div><a class=nav href='#'>↺ receitas</a></header><div class=wrap><h1 class=tagline>Header fixo</h1><p class=sub>Marca + navegação, com blur no scroll.</p></div></body></html>
