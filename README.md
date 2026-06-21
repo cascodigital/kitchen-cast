@@ -4,7 +4,7 @@ Turn a kitchen TV into an ambient photo frame that **becomes a music + recipe di
 
 This repository is a **reference implementation**, not a one-click product. It is intentionally written so a strong coding agent can understand the system, replace the home-specific adapters, and port the idea to another Home Assistant + Chromecast setup.
 
-You play music on a speaker. A *different* screen in another room notices, flips from your photo slideshow to the album art of whatever is playing, and (optionally) overlays the recipe you're about to cook. An AI DJ assembles a fitting YouTube Music playlist in the background. You press play; the food and the music both show up where you're cooking.
+You play music on a speaker. A *different* screen in another room notices, flips from your photo slideshow to the album art of whatever is playing, and (optionally) overlays the recipe you're about to cook. An AI DJ worker, called **Rolo** in my original build, assembles a fitting YouTube Music playlist in the background using the recipe, the requested vibe, and the user's music context. You press play; the food and the music both show up where you're cooking.
 
 No app to open mid-cook. No phone propped against the flour bag. Music is the trigger; everything else follows.
 
@@ -54,7 +54,7 @@ This is not "a recipe app". It is a small home-lab Rube Goldberg machine that ha
 - Home Assistant reads live track metadata and starts the music renderer;
 - the music renderer pulls album art and redraws the TV frame;
 - a recipe website condenses and arms a TV-optimized recipe overlay;
-- a headless AI worker creates a YouTube Music playlist from the selected recipe and vibe;
+- a headless AI DJ worker ("Rolo" in the original build) creates a YouTube Music playlist from the selected recipe, requested vibe, and available listening context;
 - the recipe disarms itself after the session;
 - the TV falls back to family photos when the music stops.
 
@@ -69,7 +69,7 @@ The important part is that the chaos is intentionally split into small contracts
 | `slideshow/start_musica_helper.py` | Launches the music renderer with current track metadata | Home Assistant |
 | `homeassistant/*.yaml` | The state machine: triggers on the speaker, casts the image, arms/disarms recipes | Home Assistant config |
 | `app/` | **Web app**: pick a recipe, set a vibe, arm it + get a playlist | any Docker host |
-| (your AI worker) | Headless LLM that curates the YouTube Music playlist | any Docker host |
+| AI DJ worker / `Rolo` | Headless LLM that curates the YouTube Music playlist | any Docker host |
 
 ## Repository map
 
@@ -86,6 +86,10 @@ The important part is that the chaos is intentionally split into small contracts
 | `examples/` | Small portable examples, including an active recipe JSON |
 
 ## If you're using an AI to port this
+
+This is the recommended way to reuse the project. Do not start by manually copying YAML line by line. Clone the repo, point a strong coding agent at it, and ask it to adapt the reference build to your Home Assistant entities, Chromecast targets, Docker host, recipe folder, and music provider.
+
+Use a capable model with long-context code understanding, such as Claude Opus or another advanced coding model. A weak model will likely miss the timing contracts and "one image file, two renderers" design, then create a pile of broken automations. Congratulations, that's how you invent suffering.
 
 Start here:
 
@@ -107,16 +111,18 @@ The most important rule: **do not redesign the system first**. Port the adapters
 
 1. Open the site, tap a recipe.
 2. Type a vibe for the playlist (or leave blank), **or** tap one of 5 random existing playlists for instant music.
-3. The app condenses the recipe for TV, **arms it** (writes the recipe overlay, starts a 30-minute window), and asks the AI worker to build a playlist.
+3. The app condenses the recipe for TV, **arms it** (writes the recipe overlay, starts a 30-minute window), and asks Rolo/the AI DJ worker to build a playlist.
 4. You get a link to the ready playlist. You press play on your speaker.
 5. Music mode kicks in → album art + your recipe on the kitchen TV. When you're done, it disarms and goes back to photos.
+
+The AI DJ step is intentionally replaceable. In the original setup, Rolo is a headless LLM worker with access to YouTube Music tools. It searches tracks, uses recommendations, creates a playlist, adds songs, and returns a `music.youtube.com/playlist?...` URL. If you use Spotify, Jellyfin, Navidrome, local MPD, or anything else, replace that worker contract instead of touching the Home Assistant display state machine.
 
 ## Why it's built this way
 
 - **Music is the only trigger.** No new habit to learn — you already play music when you cook.
 - **The renderer never changes for the front-end.** Arming a recipe just writes one JSON file the renderer reads each frame. Chat, web app, or a future button all do the same thing.
 - **No secrets in the web-facing app.** It never holds an SSH key to the Chromecast host; Home Assistant *pulls* the recipe over HTTP (`shell_command` + `curl`). The app only carries a Home Assistant REST token.
-- **Playlist curation is the only "AI" step**, and it's delegated to a headless LLM worker — everything else is deterministic.
+- **Playlist curation is the only "AI" step**, and it's delegated to Rolo/a headless LLM worker — everything else is deterministic.
 
 ## Setup (high level)
 
