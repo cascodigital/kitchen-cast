@@ -86,7 +86,7 @@ Rules:
 - The renderer must behave normally when the file is missing.
 - The renderer must ignore the overlay unless `enabled` is `true`.
 - The renderer should read the file repeatedly, not only at process start.
-- Lines should already be TV-optimized before writing the file.
+- Lines should already be TV-optimized before writing the file. The web app does this with deterministic heuristics: use a dedicated `TV:` block when present, otherwise prioritize quantity-bearing ingredient lines and critical timing/temperature/ponto/caution steps, then cap long lines.
 - Deleting the file is the normal disarm operation.
 
 See [`../examples/music_recipe.example.json`](../examples/music_recipe.example.json).

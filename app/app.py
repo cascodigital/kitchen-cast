@@ -12,6 +12,7 @@ import uuid
 import shlex
 import random
 import threading
+import unicodedata
 
 import requests
 import docker
@@ -111,12 +112,128 @@ def recipe_lines(path: str):
     return lines
 
 
+def normalize_text(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return s.lower()
+
+
+def shorten_tv_line(s: str, max_len=72) -> str:
+    s = re.sub(r"\s+", " ", s).strip(" -•\t")
+    if len(s) <= max_len:
+        return s
+    cut = s[:max_len + 1]
+    for sep in ("; ", ". ", ", ", " - ", " ("):
+        pos = cut.rfind(sep)
+        if pos >= 36:
+            return cut[:pos].rstrip(" ,;.-(") + "..."
+    return s[:max_len - 3].rstrip(" ,;.-") + "..."
+
+
+def split_tv_section(lines):
+    """If the recipe file has a dedicated TV: block, trust it."""
+    out = []
+    in_tv = False
+    for line in lines:
+        norm = normalize_text(line).strip(":")
+        if norm == "tv":
+            in_tv = True
+            continue
+        if in_tv and norm in {"site", "web", "receita", "notas", "notes"}:
+            break
+        if in_tv:
+            out.append(line)
+    return out
+
+
+INGREDIENT_RE = re.compile(
+    r"(^|\b)(\d+([,.]\d+)?|meia|meio|uma|um|duas|dois)\s*"
+    r"(g|kg|ml|l|xicar|colher|copo|lata|dente|unidade|pitada|tsp|tbsp|cup|oz|lb)?\b",
+    re.I,
+)
+CRITICAL_WORDS = {
+    "forno", "preaquecer", "pre-aquecer", "temperatura", "graus", "c",
+    "min", "minuto", "hora", "fogo", "baixo", "medio", "alto",
+    "virar", "mexer", "misturar", "bater", "assar", "cozinhar", "ferver",
+    "refogar", "descansar", "marinar", "tampar", "destampar",
+    "ponto", "teste", "pronto", "dourar", "rosado", "seco", "cremoso",
+    "nao", "sem", "evite", "cuidado", "atencao", "risco",
+}
+NOISE_WORDS = {
+    "ingredientes", "modo de preparo", "preparo", "observacoes", "observacao",
+    "notas", "nota", "rendimento", "serve", "fonte", "link",
+}
+
+
+def score_tv_line(line: str, index: int):
+    norm = normalize_text(line)
+    if not norm or norm in NOISE_WORDS or norm.startswith(("http://", "https://")):
+        return None
+
+    score = 0
+    kind = "other"
+    if ":" in line and len(line.split(":", 1)[0]) <= 32:
+        score += 25
+        kind = "ingredient"
+    if INGREDIENT_RE.search(norm):
+        score += 30
+        kind = "ingredient"
+    hits = sum(1 for word in CRITICAL_WORDS if word in norm)
+    if hits:
+        score += 35 + min(hits, 3) * 8
+        kind = "critical"
+    if any(ch.isdigit() for ch in line):
+        score += 8
+    if len(line) > 120:
+        score -= 8
+    score -= index * 0.05
+    return score, kind
+
+
+def condense_recipe_for_tv(lines, max_lines=MAX_TV_LINES):
+    tv_lines = split_tv_section(lines)
+    if tv_lines:
+        return [shorten_tv_line(s) for s in tv_lines if shorten_tv_line(s)][:max_lines]
+
+    candidates = []
+    seen = set()
+    for idx, line in enumerate(lines):
+        short = shorten_tv_line(line)
+        key = normalize_text(short)
+        if not short or key in seen:
+            continue
+        scored = score_tv_line(short, idx)
+        if not scored:
+            continue
+        score, kind = scored
+        seen.add(key)
+        candidates.append({"line": short, "score": score, "kind": kind, "index": idx})
+
+    ingredients = sorted(
+        [c for c in candidates if c["kind"] == "ingredient"],
+        key=lambda c: (-c["score"], c["index"]),
+    )[: max_lines // 2]
+    critical = sorted(
+        [c for c in candidates if c["kind"] == "critical"],
+        key=lambda c: (-c["score"], c["index"]),
+    )[: max_lines - len(ingredients)]
+
+    chosen = {id(c): c for c in ingredients + critical}
+    if len(chosen) < max_lines:
+        for c in sorted(candidates, key=lambda c: (-c["score"], c["index"])):
+            chosen[id(c)] = c
+            if len(chosen) >= max_lines:
+                break
+
+    return [c["line"] for c in sorted(chosen.values(), key=lambda c: c["index"])[:max_lines]]
+
+
 def build_recipe_json(rid: str, path: str):
     lines = recipe_lines(path)
     return {
         "enabled": True,
         "title": prettify(rid).upper(),
-        "lines": lines[:MAX_TV_LINES],
+        "lines": condense_recipe_for_tv(lines),
     }
 
 

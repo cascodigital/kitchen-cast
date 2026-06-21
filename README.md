@@ -53,7 +53,7 @@ This is not "a recipe app". It is a small home-lab Rube Goldberg machine that ha
 - a separate Chromecast Audio acts as the trigger;
 - Home Assistant reads live track metadata and starts the music renderer;
 - the music renderer pulls album art and redraws the TV frame;
-- a recipe website arms a TV-optimized recipe overlay;
+- a recipe website condenses and arms a TV-optimized recipe overlay;
 - a headless AI worker creates a YouTube Music playlist from the selected recipe and vibe;
 - the recipe disarms itself after the session;
 - the TV falls back to family photos when the music stops.
@@ -107,7 +107,7 @@ The most important rule: **do not redesign the system first**. Port the adapters
 
 1. Open the site, tap a recipe.
 2. Type a vibe for the playlist (or leave blank), **or** tap one of 5 random existing playlists for instant music.
-3. The app **arms the recipe** (writes the recipe overlay, starts a 30-minute window) and asks the AI worker to build a playlist.
+3. The app condenses the recipe for TV, **arms it** (writes the recipe overlay, starts a 30-minute window), and asks the AI worker to build a playlist.
 4. You get a link to the ready playlist. You press play on your speaker.
 5. Music mode kicks in → album art + your recipe on the kitchen TV. When you're done, it disarms and goes back to photos.
 
@@ -129,6 +129,6 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full data flow and th
 
 ## Status
 
-Personal lab project, built incrementally and developed over time. The repository is meant to be readable, adaptable, and honest about the hard parts. It is not maintained as a generic installer. Roadmap in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Personal lab project, built incrementally and developed over time. The repository is meant to be readable, adaptable, and honest about the hard parts. It is not maintained as a generic installer.
 
 The repo includes screenshots and design artifacts because this project makes more sense when you can see the kitchen TV, not just read YAML and pretend that is emotionally healthy.
