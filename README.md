@@ -1,4 +1,19 @@
-# kitchen-cast
+<div align="center">
+
+# Kitchen Cast
+
+**A kitchen TV ambient display that switches into music and recipe mode automatically.**
+
+![Status](https://img.shields.io/badge/Status-Reference-16A34A?style=flat-square)
+![License](https://img.shields.io/badge/License-MIT-2563EB?style=flat-square)
+![Casco Digital](https://img.shields.io/badge/Casco-Digital-111827?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.x-3776AB?style=flat-square&logo=python&logoColor=white)
+![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Automation-18BCF2?style=flat-square&logo=homeassistant&logoColor=white)
+![Chromecast](https://img.shields.io/badge/Chromecast-Display-4285F4?style=flat-square&logo=googlechrome&logoColor=white)
+
+</div>
+
+---
 
 Turn a kitchen TV into an ambient photo frame that **becomes a music + recipe display the moment you play music** — and lets an AI build the cooking playlist for you.
 
