@@ -2,8 +2,11 @@
 # Replace HA_HOST with your Home Assistant IP/host and APP_HOST:8095 with the host running kitchen-cast.
 
 shell_command:
-  # kill music mode and restart the photo generator (base state)
-  start_slideshow_gen: "pkill -f '[m]usica_slideshow.py' 2>/dev/null; nohup python3 /config/slideshow_gen.py >/dev/null 2>&1 &"
+  # photo mode (base state): start slideshow_gen.py unless a renderer already runs (flock-serialized)
+  start_slideshow_gen: "sh /config/start_slideshow_safe.sh >/dev/null"
+  stop_slideshow_gen: "pkill -f '[s]lideshow_gen.py' 2>/dev/null; true"
+  # rebuild /config/www/fotos.json from the photo folder (run nightly)
+  update_slideshow: "sh /config/update_slideshow.sh"
   stop_musica_slideshow: "pkill -f '[m]usica_slideshow.py' 2>/dev/null; true"
   start_musica_slideshow: "python3 /config/start_musica_helper.py >/tmp/musica_helper.log 2>&1"
   # recipe arming: pull the pending recipe from the web app and save it as the active file
@@ -11,6 +14,12 @@ shell_command:
   disarm_music_recipe: "rm -f /config/music_recipe.json"
 
 command_line:
+  # watchdog: every 60 s (re)starts the photo renderer if nothing is drawing; state = music|running|started
+  - sensor:
+      name: "slideshow_gen_status"
+      unique_id: slideshow_gen_status
+      command: "sh /config/start_slideshow_safe.sh"
+      scan_interval: 60
   # write the music state to a file (shell_command does not render Jinja2; command_line does)
   - sensor:
       name: "music_state_writer"
@@ -19,6 +28,8 @@ command_line:
       scan_interval: 10
 
 # helpers for recipe arming
+# The web app starts the timer named by RECIPE_TIMER_ENTITY (default timer.recipe_window);
+# if you rename this timer, set that variable to match.
 timer:
   recipe_window:
     name: Recipe window

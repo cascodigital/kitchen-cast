@@ -12,6 +12,13 @@ services:
       - YTM_MCP_CONFIG=/home/claude/ai/mcp/youtube-music/mcp-config.json
       - YTM_AUTH_FILE=/auth/ytmusic_auth.json
       - RECIPES_DIR=/recipes
+      # Home Assistant timer started on arm; must match the timer id in configuration.snippets.yaml
+      - RECIPE_TIMER_ENTITY=timer.recipe_window
+      # paths below are INSIDE the worker container
+      - WORKER_USER=claude                      # user that runs the claude CLI in the worker
+      - ROLO_SKILL_FILE=/home/claude/rolo/SKILL.md   # appended as system prompt on every job
+      # delivery check; gets --playlist-id <id> --since <epoch>, must print {"ok": true} and exit 0
+      - ROLO_DELIVERY_CMD=python3 /home/claude/rolo/rolo_curate.py delivery
     volumes:
       # your recipes (.txt, one file per recipe), mounted read-only
       - /PATH/TO/your/recipes:/recipes:ro

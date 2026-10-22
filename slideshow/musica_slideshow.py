@@ -426,7 +426,7 @@ def main():
     # If the current cover exists, use only that. This avoids cycling to poor
     # artist/fallback images while a correct cover is available.
     if entity_pic.startswith("http"):
-        ep = entity_pic.replace("w544-h544", "w1920-h1080")
+        ep = entity_pic.replace("w544-h544", "w1920-h1080").replace("size=512", "size=1080")
         img = fetch_image(ep)
         if img:
             images = [img]

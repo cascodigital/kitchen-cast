@@ -7,13 +7,13 @@ The user picks a recipe, submits, gets the finished playlist link and presses pl
 """
 import os
 import re
+import json
 import glob
 import time
 import uuid
 import shlex
 import random
 import threading
-import unicodedata
 
 import requests
 import docker
@@ -28,6 +28,18 @@ YTM_MCP = os.environ.get("YTM_MCP_CONFIG", "/home/claude/ai/mcp/youtube-music/mc
 MAX_TV_LINES = int(os.environ.get("MAX_TV_LINES", "12"))
 YTM_AUTH_FILE = os.environ.get("YTM_AUTH_FILE", "/auth/ytmusic_auth.json")
 QUICK_COUNT = int(os.environ.get("QUICK_COUNT", "5"))
+# Home Assistant timer started when a recipe is armed (must match configuration.snippets.yaml)
+RECIPE_TIMER = os.environ.get("RECIPE_TIMER_ENTITY", "timer.recipe_window")
+# Rolo skill file inside the worker container; appended as the system prompt on every job
+ROLO_SKILL = os.environ.get("ROLO_SKILL_FILE", "/home/claude/rolo/SKILL.md")
+# user that runs `claude -p` and the delivery check inside the worker container
+WORKER_USER = os.environ.get("WORKER_USER", "claude")
+# command (inside the worker) that confirms a validated delivery; receives
+# `--playlist-id <id> --since <epoch>` and must print JSON {"ok": true} with exit code 0
+ROLO_DELIVERY_CMD = os.environ.get(
+    "ROLO_DELIVERY_CMD",
+    "python3 " + os.path.join(os.path.dirname(ROLO_SKILL), "rolo_curate.py") + " delivery",
+)
 
 app = FastAPI(title="cozinha")
 
@@ -101,140 +113,42 @@ def recipe_path(rid: str):
     return p if os.path.isfile(p) else None
 
 
-def recipe_lines(path: str):
-    lines = []
+def parse_recipe(path: str):
+    """Split a recipe file into (site_lines, tv_lines).
+
+    Everything after a line that reads exactly `TV:` (case-insensitive) is the
+    condensed version drawn on the TV; everything before it is the full recipe.
+    """
+    site_lines = []
+    tv_lines = []
+    in_tv = False
     with open(path, encoding="utf-8", errors="replace") as f:
         for raw in f:
             s = raw.strip()
+            if s.lower() == "tv:":
+                in_tv = True
+                continue
             if s.startswith("-"):
                 s = s[1:].strip()
             if s:
-                lines.append(s)
-    return lines
+                if in_tv:
+                    tv_lines.append(s)
+                else:
+                    site_lines.append(s)
+    return site_lines, tv_lines
 
 
-def normalize_text(s: str) -> str:
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    return s.lower()
-
-
-def shorten_tv_line(s: str, max_len=72) -> str:
-    s = re.sub(r"\s+", " ", s).strip(" -•\t")
-    if len(s) <= max_len:
-        return s
-    cut = s[:max_len + 1]
-    for sep in ("; ", ". ", ", ", " - ", " ("):
-        pos = cut.rfind(sep)
-        if pos >= 36:
-            return cut[:pos].rstrip(" ,;.-(") + "..."
-    return s[:max_len - 3].rstrip(" ,;.-") + "..."
-
-
-def split_tv_section(lines):
-    """If the recipe file has a dedicated TV: block, trust it."""
-    out = []
-    in_tv = False
-    for line in lines:
-        norm = normalize_text(line).strip(":")
-        if norm == "tv":
-            in_tv = True
-            continue
-        if in_tv and norm in {"site", "web", "receita", "notas", "notes"}:
-            break
-        if in_tv:
-            out.append(line)
-    return out
-
-
-INGREDIENT_RE = re.compile(
-    r"(^|\b)(\d+([,.]\d+)?|meia|meio|uma|um|duas|dois)\s*"
-    r"(g|kg|ml|l|xicar|colher|copo|lata|dente|unidade|pitada|tsp|tbsp|cup|oz|lb)?\b",
-    re.I,
-)
-CRITICAL_WORDS = {
-    "forno", "preaquecer", "pre-aquecer", "temperatura", "graus", "c",
-    "min", "minuto", "hora", "fogo", "baixo", "medio", "alto",
-    "virar", "mexer", "misturar", "bater", "assar", "cozinhar", "ferver",
-    "refogar", "descansar", "marinar", "tampar", "destampar",
-    "ponto", "teste", "pronto", "dourar", "rosado", "seco", "cremoso",
-    "nao", "sem", "evite", "cuidado", "atencao", "risco",
-}
-NOISE_WORDS = {
-    "ingredientes", "modo de preparo", "preparo", "observacoes", "observacao",
-    "notas", "nota", "rendimento", "serve", "fonte", "link",
-}
-
-
-def score_tv_line(line: str, index: int):
-    norm = normalize_text(line)
-    if not norm or norm in NOISE_WORDS or norm.startswith(("http://", "https://")):
-        return None
-
-    score = 0
-    kind = "other"
-    if ":" in line and len(line.split(":", 1)[0]) <= 32:
-        score += 25
-        kind = "ingredient"
-    if INGREDIENT_RE.search(norm):
-        score += 30
-        kind = "ingredient"
-    hits = sum(1 for word in CRITICAL_WORDS if word in norm)
-    if hits:
-        score += 35 + min(hits, 3) * 8
-        kind = "critical"
-    if any(ch.isdigit() for ch in line):
-        score += 8
-    if len(line) > 120:
-        score -= 8
-    score -= index * 0.05
-    return score, kind
-
-
-def condense_recipe_for_tv(lines, max_lines=MAX_TV_LINES):
-    tv_lines = split_tv_section(lines)
-    if tv_lines:
-        return [shorten_tv_line(s) for s in tv_lines if shorten_tv_line(s)][:max_lines]
-
-    candidates = []
-    seen = set()
-    for idx, line in enumerate(lines):
-        short = shorten_tv_line(line)
-        key = normalize_text(short)
-        if not short or key in seen:
-            continue
-        scored = score_tv_line(short, idx)
-        if not scored:
-            continue
-        score, kind = scored
-        seen.add(key)
-        candidates.append({"line": short, "score": score, "kind": kind, "index": idx})
-
-    ingredients = sorted(
-        [c for c in candidates if c["kind"] == "ingredient"],
-        key=lambda c: (-c["score"], c["index"]),
-    )[: max_lines // 2]
-    critical = sorted(
-        [c for c in candidates if c["kind"] == "critical"],
-        key=lambda c: (-c["score"], c["index"]),
-    )[: max_lines - len(ingredients)]
-
-    chosen = {id(c): c for c in ingredients + critical}
-    if len(chosen) < max_lines:
-        for c in sorted(candidates, key=lambda c: (-c["score"], c["index"])):
-            chosen[id(c)] = c
-            if len(chosen) >= max_lines:
-                break
-
-    return [c["line"] for c in sorted(chosen.values(), key=lambda c: c["index"])[:max_lines]]
+def recipe_lines(path: str):
+    return parse_recipe(path)[0]
 
 
 def build_recipe_json(rid: str, path: str):
-    lines = recipe_lines(path)
+    site_lines, tv_lines = parse_recipe(path)
+    lines = tv_lines or site_lines
     return {
         "enabled": True,
         "title": prettify(rid).upper(),
-        "lines": condense_recipe_for_tv(lines),
+        "lines": lines[:MAX_TV_LINES],
     }
 
 
@@ -258,16 +172,11 @@ def arm_recipe(recipe_json: dict):
     time.sleep(1.5)
     # 3) turn on the gate + start the 30-minute window
     hass_call("input_boolean", "turn_on", {"entity_id": "input_boolean.recipe_armed"})
-    hass_call("timer", "start", {"entity_id": "timer.skcoz_recipe_window"})
+    hass_call("timer", "start", {"entity_id": RECIPE_TIMER})
 
 
 # ---------------------------------------------------------------- playlist (AI)
-PLAYLIST_TOOLS = (
-    "mcp__youtube-music__search_songs,"
-    "mcp__youtube-music__get_recommendations,"
-    "mcp__youtube-music__create_playlist,"
-    "mcp__youtube-music__add_playlist_items"
-)
+PLAYLIST_TOOLS = "Bash,Read,Write,Edit,ToolSearch,mcp__youtube-music__*"
 URL_RE = re.compile(r"https://music\.youtube\.com/playlist\?list=[\w-]+")
 ID_RE = re.compile(r"\b((?:PL|VL|RDCL)[\w-]{10,}|list=([\w-]{10,}))\b")
 
@@ -275,32 +184,54 @@ ID_RE = re.compile(r"\b((?:PL|VL|RDCL)[\w-]{10,}|list=([\w-]{10,}))\b")
 def make_playlist(title: str, instructions: str) -> str:
     vibe = instructions.strip() or "escolha pela vibe da receita e pela hora do dia"
     prompt = (
-        f"Voce e o Rolo, DJ. Crie UMA playlist no YouTube Music para cozinhar '{title}'. "
-        f"Vibe pedida: {vibe}. "
-        "Use mcp__youtube-music__search_songs e get_recommendations para escolher ~15 faixas coerentes "
-        "com a vibe pedida e o historico musical disponivel; respeite o pedido do usuario. "
-        f"Crie com mcp__youtube-music__create_playlist (titulo 'Cozinha: {title}') e adicione as faixas "
-        "com add_playlist_items. Ao terminar responda SOMENTE a URL no formato "
-        "https://music.youtube.com/playlist?list=<id> , nada mais."
+        f"Crie UMA playlist no YouTube Music para cozinhar '{title}'. "
+        f"Pedido do usuario: {vibe}. "
+        "Use 15 faixas salvo quantidade explícita diferente no pedido. "
+        "Siga a skill Rolo carregada no sistema: descubra/carregue ferramentas deferred, "
+        "consulte contexto e feedback, valide o manifesto antes de criar, releia a playlist "
+        "e registre a entrega validada antes de responder. "
+        f"Titulo da playlist: 'Cozinha: {title}'. "
+        "Ao terminar com entrega validada, responda SOMENTE a URL no formato "
+        "https://music.youtube.com/playlist?list=<id> , nada mais. "
+        "Se não puder validar a entrega, informe a falha sem apresentar URL de sucesso."
     )
+    # The skill file is read inside the worker on every job, so edits to it take effect immediately.
     bash = (
-        "cd ~ && timeout 280 claude -p "
+        f"cd {shlex.quote(os.path.dirname(ROLO_SKILL))} && "
+        f"rolo_skill_prompt=$(cat -- {shlex.quote(ROLO_SKILL)}) && "
+        "timeout 280 claude -p "
         + shlex.quote(prompt)
+        + ' --append-system-prompt "$rolo_skill_prompt"'
         + f" --mcp-config {shlex.quote(YTM_MCP)} --dangerously-skip-permissions --allowedTools {PLAYLIST_TOOLS}"
     )
     dcli = docker.from_env()
     container = dcli.containers.get(WORKER)
-    res = container.exec_run(["bash", "-lc", bash], user="claude", demux=False)
+    started = int(time.time())
+    res = container.exec_run(["bash", "-lc", bash], user=WORKER_USER, demux=False)
     out = (res.output or b"").decode("utf-8", "replace")
+
+    if res.exit_code != 0:
+        raise RuntimeError("Rolo worker failed:\n" + out[-800:])
 
     m = URL_RE.search(out)
     if m:
-        return m.group(0)
-    m = ID_RE.search(out)
-    if m:
+        pid = m.group(0).split("list=", 1)[1]
+    else:
+        m = ID_RE.search(out)
+        if not m:
+            raise RuntimeError("playlist URL not found in worker output:\n" + out[-800:])
         pid = m.group(2) or m.group(1)
-        return f"https://music.youtube.com/playlist?list={pid}"
-    raise RuntimeError("playlist URL not found in worker output:\n" + out[-800:])
+
+    # The URL is accepted only after an independent delivery record confirms it.
+    proof_cmd = shlex.split(ROLO_DELIVERY_CMD) + ["--playlist-id", pid, "--since", str(started)]
+    proof = container.exec_run(proof_cmd, user=WORKER_USER, demux=False)
+    try:
+        verdict = json.loads((proof.output or b"").decode("utf-8", "replace"))
+    except (ValueError, TypeError):
+        verdict = {}
+    if proof.exit_code != 0 or not isinstance(verdict, dict) or verdict.get("ok") is not True:
+        raise RuntimeError("playlist has no validated delivery record for this run")
+    return f"https://music.youtube.com/playlist?list={pid}"
 
 
 # ---------------------------------------------------------------- job runner

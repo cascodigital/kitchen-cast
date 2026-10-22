@@ -33,7 +33,22 @@
   actions:
   - {action: shell_command.stop_musica_slideshow}
   - {delay: {seconds: 1}}
+  - {action: shell_command.stop_slideshow_gen}
+  - {delay: {seconds: 1}}
   - {action: shell_command.start_slideshow_gen}
+  - {delay: {seconds: 4}}
+  - {action: script.slideshow_foto_atual_force}           # push the first photo frame to the TV
+  - {delay: {seconds: 8}}
+  - {action: script.slideshow_foto_atual_force}
+  mode: restart
+
+# REFRESH the photo list every night (new photos join the deck; unchanged list = no reload)
+- id: slideshow_update_fotos
+  alias: Slideshow - Update photo list
+  triggers:
+  - {trigger: time, at: "03:00:00"}
+  actions:
+  - {action: shell_command.update_slideshow}
   mode: single
 
 # DISARM the recipe: 30-minute window expired with no play, or cooking ended (speaker stopped 15 min)

@@ -2,7 +2,7 @@
 
 ## Title options
 
-- I built a kitchen Chromecast that switches from family photos to live music art and overlays AI-condensed recipes
+- I built a kitchen Chromecast that switches from family photos to live music art and overlays TV-condensed recipes
 - My Home Assistant kitchen TV turns music into a live album-art + recipe display, with AI-generated YouTube Music playlists
 - I accidentally built a tiny kitchen operating system with Home Assistant, Chromecast, recipes, and an AI DJ
 
@@ -10,7 +10,7 @@
 
 I built a Home Assistant + Chromecast kitchen display that normally shows a family photo slideshow. When music starts on my Chromecast Audio, the kitchen TV automatically switches to a music mode showing live album art and track metadata.
 
-The extra absurd part: I also have a recipe website. I pick a recipe, type a playlist vibe, and an AI worker creates a YouTube Music playlist. The selected recipe gets condensed into a TV-friendly overlay. When I press play, the Chromecast Audio triggers the kitchen TV, so the screen shows both the album art and the recipe while I cook.
+The extra absurd part: I also have a recipe website. I pick a recipe, type a playlist vibe, and an AI worker creates a YouTube Music playlist. The selected recipe's short TV version becomes an overlay. When I press play, the Chromecast Audio triggers the kitchen TV, so the screen shows both the album art and the recipe while I cook.
 
 When the music stops, it falls back to the photo slideshow and eventually disarms the recipe.
 

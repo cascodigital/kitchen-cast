@@ -46,10 +46,13 @@ Before editing code, collect these values:
 | TV media player entity | `media_player.COZINHA` | scripts and automations |
 | Music speaker entity | `media_player.SALA` | automations, music metadata sensor |
 | App host URL reachable from HA | `http://APP_HOST:8095` | `fetch_music_recipe` shell command |
-| Photo source path | `/media/photos` | `slideshow_gen.py` adaptation |
+| Photo source path / list | `PHOTOS_DIR`, `PHOTOS_JSON` | `slideshow_gen.py`, `update_slideshow.sh` (defaults are in the scripts; HA shell commands do not pass env, so edit the defaults or prefix the command) |
 | Recipe source path | `/recipes` | app volume |
 | Weather coordinates | `WEATHER_LAT`, `WEATHER_LON` | renderers |
-| AI worker command | `docker exec ... llm-cli ...` | `app/app.py` |
+| AI worker container / user | `WORKER_CONTAINER`, `WORKER_USER` | app env |
+| DJ skill prompt file (in worker) | `ROLO_SKILL_FILE` | app env |
+| Playlist delivery check (in worker) | `ROLO_DELIVERY_CMD` | app env |
+| Recipe timer entity | `RECIPE_TIMER_ENTITY` (`timer.recipe_window`) | app env, snippets |
 | YouTube Music auth file | `/auth/ytmusic_auth.json` | app volume |
 
 ## Porting order
@@ -86,7 +89,7 @@ Follow this order. It reduces failure domains.
    - Delete the file and confirm music mode has no recipe panel.
 
 7. **Recipe arm/disarm**
-   - Add `timer.recipe_window`, `input_boolean.recipe_armed`, `fetch_music_recipe`, and `disarm_music_recipe`.
+   - Add `timer.recipe_window`, `input_boolean.recipe_armed`, `fetch_music_recipe`, and `disarm_music_recipe`. If you name the timer differently, set `RECIPE_TIMER_ENTITY` in the app to the same id.
    - Confirm the web app can arm a recipe without SSH.
 
 8. **Playlist generation**

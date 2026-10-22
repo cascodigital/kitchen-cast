@@ -2,10 +2,10 @@
 """Photo-mode renderer: photo + clock + 3-day weather written to current.jpg."""
 import json, random, os, time, urllib.request, datetime
 
-FOTOS_DIR  = "/media/media/Picures"
+FOTOS_DIR  = os.environ.get("PHOTOS_DIR", "/media/media/Pictures")
 OUT_FILE   = "/config/www/current.jpg"
 TMP_IMG    = "/config/www/.current_tmp.jpg"
-FOTOS_JSON = "/media/media/Picures/fotos.json"
+FOTOS_JSON = os.environ.get("PHOTOS_JSON", "/config/www/fotos.json")  # JSON array of paths relative to FOTOS_DIR
 LAT, LON   = float(os.environ.get("WEATHER_LAT","40.7128")), float(os.environ.get("WEATHER_LON","-74.0060"))  # set your coordinates
 INTERVAL   = 25
 
@@ -222,11 +222,149 @@ def make_composite(foto_path, weather, photo_meta=("", "")):
     canvas.save(TMP_IMG, "JPEG", quality=90)
     os.replace(TMP_IMG, OUT_FILE)
 
+def folder_key(photo):
+    """Top-level source folder, used only to minimize visual adjacency."""
+    return photo.split("/", 1)[0] if "/" in photo else "(root)"
+
+
+def load_photos():
+    with open(FOTOS_JSON, encoding="utf-8") as handle:
+        photos = json.load(handle)
+    if not isinstance(photos, list) or not photos:
+        raise ValueError("fotos.json is empty or invalid")
+    if not all(isinstance(photo, str) and photo for photo in photos):
+        raise ValueError("fotos.json contains an invalid entry")
+    if len(photos) != len(set(photos)):
+        raise ValueError("fotos.json contains duplicate paths")
+    return photos
+
+
+def state_is_feasible(counts, previous):
+    """Whether the remaining folders can be arranged after `previous`."""
+    total = sum(counts.values())
+    for folder, count in counts.items():
+        others = total - count
+        allowance = others if folder == previous else others + 1
+        if count > allowance:
+            return False
+    return True
+
+
+def weighted_choice(folders, counts):
+    """Random folder choice proportional to its remaining file count."""
+    target = random.randrange(sum(counts[folder] for folder in folders))
+    for folder in folders:
+        target -= counts[folder]
+        if target < 0:
+            return folder
+    raise RuntimeError("weighted_choice: no candidate")
+
+
+def plan_without_adjacent(buckets, previous=None):
+    """Consume every bucket exactly once without equal adjacent folders."""
+    counts = {folder: len(queue) for folder, queue in buckets.items()}
+    if not state_is_feasible(counts, previous):
+        # Starting after `previous` cannot avoid adjacency (e.g. it is the
+        # largest folder); accept one seam between decks instead of failing.
+        previous = None
+    deck = []
+    while sum(counts.values()):
+        safe = []
+        for folder, count in counts.items():
+            if count == 0 or folder == previous:
+                continue
+            counts[folder] -= 1
+            if state_is_feasible(counts, folder):
+                safe.append(folder)
+            counts[folder] += 1
+        if safe:
+            folder = weighted_choice(safe, counts)
+        else:
+            # Zero adjacency is impossible from here (one folder is too large
+            # for the rest): drain the largest other folder first so the
+            # unavoidable repeats are bunched as late and as few as possible.
+            others = [f for f, c in counts.items() if c and f != previous]
+            folder = max(others or [f for f, c in counts.items() if c], key=counts.get)
+        deck.append(buckets[folder].pop())
+        counts[folder] -= 1
+        previous = folder
+    return deck
+
+
+def build_photo_deck(photos, previous=None):
+    """Deck with every file exactly once and the minimum possible folder adjacency."""
+    buckets = {}
+    for photo in photos:
+        buckets.setdefault(folder_key(photo), []).append(photo)
+    for queue in buckets.values():
+        random.shuffle(queue)
+
+    counts = {folder: len(queue) for folder, queue in buckets.items()}
+    total = len(photos)
+    dominant = max(counts, key=counts.get)
+    dominant_count = counts[dominant]
+    other_count = total - dominant_count
+
+    if dominant_count <= other_count + 1:
+        deck = plan_without_adjacent(buckets, previous)
+        mode = "no-adjacency"
+    else:
+        dominant_queue = buckets.pop(dominant)
+        other_deck = plan_without_adjacent(
+            buckets,
+            previous if previous != dominant else dominant,
+        )
+
+        # There are O+1 gaps around O non-dominant photos. Spread the
+        # dominant folder as evenly as mathematically possible. If the
+        # previous photo was dominant, start with a non-dominant photo
+        # (impossible when the dominant folder is the only one).
+        if previous == dominant and other_deck:
+            gap_count = len(other_deck)
+            gap_sizes = [dominant_count // gap_count] * gap_count
+            for index in random.sample(
+                range(gap_count), dominant_count % gap_count
+            ):
+                gap_sizes[index] += 1
+            deck = []
+            for photo, size in zip(other_deck, gap_sizes):
+                deck.append(photo)
+                for _ in range(size):
+                    deck.append(dominant_queue.pop())
+        else:
+            gap_count = len(other_deck) + 1
+            gap_sizes = [dominant_count // gap_count] * gap_count
+            for index in random.sample(
+                range(gap_count), dominant_count % gap_count
+            ):
+                gap_sizes[index] += 1
+            deck = []
+            for index, size in enumerate(gap_sizes):
+                for _ in range(size):
+                    deck.append(dominant_queue.pop())
+                if index < len(other_deck):
+                    deck.append(other_deck[index])
+        mode = "minimum-adjacency"
+
+    adjacency = sum(
+        folder_key(deck[index - 1]) == folder_key(deck[index])
+        for index in range(1, len(deck))
+    )
+    print(
+        f"[deck] {len(deck)} photos, {len(counts)} folders, "
+        f"mode={mode}, adjacencies={adjacency}"
+    )
+    return deck
+
+
 def main():
-    with open(FOTOS_JSON) as f:
-        fotos = json.load(f)
-    random.shuffle(fotos)
+    photos = load_photos()
+    photos_signature = (os.stat(FOTOS_JSON).st_mtime_ns, os.path.getsize(FOTOS_JSON))
+    deck = build_photo_deck(photos)
     idx = 0
+    previous = None
+    deck_date = datetime.date.today()
+    last_list_check = 0
     weather = fetch_weather()
     weather_time = time.time() if weather else 0
 
@@ -236,7 +374,30 @@ def main():
             weather = fetch_weather()
             weather_time = time.time()
 
-        foto = fotos[idx % len(fotos)]
+        # reshuffle once per day
+        today = datetime.date.today()
+        if today != deck_date:
+            deck = build_photo_deck(photos, previous)
+            idx = 0
+            deck_date = today
+            print(f"[deck] new day: {deck_date:%Y-%m-%d}")
+
+        # reload the photo list when fotos.json changes (checked every 60 s)
+        if time.time() - last_list_check >= 60:
+            last_list_check = time.time()
+            signature = (os.stat(FOTOS_JSON).st_mtime_ns, os.path.getsize(FOTOS_JSON))
+            if signature != photos_signature:
+                photos = load_photos()
+                photos_signature = (os.stat(FOTOS_JSON).st_mtime_ns, os.path.getsize(FOTOS_JSON))
+                deck = build_photo_deck(photos, previous)
+                idx = 0
+                print(f"[list] reloaded: {len(photos)} photos")
+
+        if idx >= len(deck):
+            deck = build_photo_deck(photos, previous)
+            idx = 0
+
+        foto = deck[idx]
         foto_path = os.path.join(FOTOS_DIR, foto)
         t0 = time.time()
         try:
@@ -248,6 +409,7 @@ def main():
 
         elapsed = time.time() - t0
         idx += 1
+        previous = folder_key(foto)
         time.sleep(max(1, INTERVAL - elapsed))
 
 if __name__ == "__main__":

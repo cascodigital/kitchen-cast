@@ -9,7 +9,9 @@ The Chromecast on the TV is dumb — it just displays one URL: `current.jpg`, re
 - In the **photo state**, `slideshow_gen.py` writes it (~every 25s).
 - In the **music state**, `musica_slideshow.py` writes it (~every 15s).
 
-Only one runs at a time. The Home Assistant automations kill one and start the other based on whether your speaker is playing. The TV never knows the difference.
+Only one runs at a time. The Home Assistant automations kill one and start the other based on whether your speaker is playing. The TV never knows the difference. Both start paths (`start_musica_helper.py` for music, `start_slideshow_safe.sh` for photos) take an exclusive `flock` on `/config/.slideshow_renderer.lock`, so a watchdog restart of the photo renderer cannot race a music-mode start. The watchdog is a `command_line` sensor (`slideshow_gen_status`) that runs `start_slideshow_safe.sh` every 60 s and reports `music`, `running` or `started`.
+
+The photo renderer plays a *deck*: every photo in `fotos.json` appears exactly once per pass, and consecutive photos come from different top-level folders whenever that is mathematically possible (when one folder holds more than half the photos, its photos are spread as evenly as possible). The deck is rebuilt every day, at the end of each pass, and whenever `fotos.json` changes (checked every 60 s; `update_slideshow.sh` rewrites it only when the list changed).
 
 ## State machine
 
@@ -52,8 +54,10 @@ browser → app POST /cook
   │    → Home Assistant shell_command curls /api/pending_recipe → writes the recipe file
   │    → input_boolean ON + timer start (30 min)
   └─ PLAYLIST (AI):
-       docker exec <worker> <llm-cli> -p "<DJ prompt>"  → creates a YouTube Music playlist
-       → returns the playlist URL
+       docker exec <worker> claude -p "<DJ prompt>" --append-system-prompt "$(cat ROLO_SKILL_FILE)"
+       → creates a YouTube Music playlist (non-zero exit = failure)
+       → docker exec <worker> ROLO_DELIVERY_CMD --playlist-id <id> --since <start>
+       → URL returned only if that check prints {"ok": true}
 app → returns job id ; browser polls /job/<id> until the playlist URL is ready
 ```
 

@@ -5,10 +5,11 @@ Reads the media player state from /config/.music_state.txt (written by the
 Home Assistant music_state_writer sensor via a Jinja2 template) and starts
 musica_slideshow.py.
 """
-import os, sys, subprocess, time
+import fcntl, os, sys, subprocess, time
 
 STATE_FILE = "/config/.music_state.txt"
 LOG_FILE   = "/tmp/musica_slideshow.log"
+LOCK_FILE  = "/config/.slideshow_renderer.lock"
 
 def read_state():
     try:
@@ -43,9 +44,6 @@ def read_state():
 
 
 def main():
-    os.system("pkill -f '[m]usica_slideshow.py' 2>/dev/null")
-    os.system("pkill -f '[s]lideshow_gen.py' 2>/dev/null")
-
     state = read_state()
     if not state:
         sys.exit(1)
@@ -75,16 +73,23 @@ def main():
     env["ENTITY_PIC"] = entity_pic
     env["ALBUM"]      = album
 
-    log = open(LOG_FILE, "w")
-    proc = subprocess.Popen(
-        ["python3", "-u", "/config/musica_slideshow.py"],
-        env=env,
-        stdout=log,
-        stderr=log,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    print(f"[helper] PID={proc.pid} — OK")
+    # Renderer ownership is serialized with the photo watchdog through an flock.
+    # State and metadata are validated before the running renderer is killed,
+    # so a bad trigger cannot blank the TV.
+    with open(LOCK_FILE, "a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        os.system("pkill -f '[m]usica_slideshow.py' 2>/dev/null")
+        os.system("pkill -f '[s]lideshow_gen.py' 2>/dev/null")
+        log = open(LOG_FILE, "w")
+        proc = subprocess.Popen(
+            ["python3", "-u", "/config/musica_slideshow.py"],
+            env=env,
+            stdout=log,
+            stderr=log,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        print(f"[helper] PID={proc.pid} — OK")
 
 
 if __name__ == "__main__":
