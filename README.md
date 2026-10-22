@@ -1,27 +1,8 @@
-<div align="center">
+# kitchen-cast
 
-# Kitchen Cast
+A Home Assistant + Chromecast reference build that turns a kitchen TV into a photo frame which switches to album art and a recipe overlay whenever music starts playing.
 
-**A kitchen TV ambient display that switches into music and recipe mode automatically.**
-
-![Status](https://img.shields.io/badge/Status-Reference-16A34A?style=flat-square)
-![License](https://img.shields.io/badge/License-MIT-2563EB?style=flat-square)
-![Casco Digital](https://img.shields.io/badge/Casco-Digital-111827?style=flat-square)
-![Python](https://img.shields.io/badge/Python-3.x-3776AB?style=flat-square&logo=python&logoColor=white)
-![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Automation-18BCF2?style=flat-square&logo=homeassistant&logoColor=white)
-![Chromecast](https://img.shields.io/badge/Chromecast-Display-4285F4?style=flat-square&logo=googlechrome&logoColor=white)
-
-</div>
-
----
-
-Turn a kitchen TV into an ambient photo frame that **becomes a music + recipe display the moment you play music** — and lets an AI build the cooking playlist for you.
-
-This repository is a **reference implementation**, not a one-click product. It is intentionally written so a strong coding agent can understand the system, replace the home-specific adapters, and port the idea to another Home Assistant + Chromecast setup.
-
-You play music on a speaker. A *different* screen in another room notices, flips from your photo slideshow to the album art of whatever is playing, and (optionally) overlays the recipe you're about to cook. An AI DJ worker, called **Rolo** in my original build, assembles a fitting YouTube Music playlist in the background using the recipe, the requested vibe, and the user's music context. You press play; the food and the music both show up where you're cooking.
-
-No app to open mid-cook. No phone propped against the flour bag. Music is the trigger; everything else follows.
+![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.11-blue) ![Status](https://img.shields.io/badge/status-maintained-blue)
 
 ![Kitchen Cast music mode with recipe overlay](preview/_prod_com_receita.jpg)
 
@@ -30,126 +11,184 @@ No app to open mid-cook. No phone propped against the flour bag. Music is the tr
   <img src="preview/opcao_E_receita_longa.jpg" alt="Recipe overlay stress test" width="49%">
 </p>
 
----
+## Overview
 
-## What it actually does
+Cooking with a recipe usually means a phone propped against the flour bag and a separate app for
+music. Off-the-shelf Chromecast dashboards show one thing at a time and do not react to what a
+different speaker is playing. Kitchen Cast uses music as the only trigger: when a speaker in another
+room starts playing, the kitchen TV flips from a photo slideshow to the current album art, optionally
+with a TV-condensed recipe, and an AI worker builds a matching YouTube Music playlist.
 
-It's a **two-state machine on a Chromecast-connected TV**, plus an optional recipe overlay and an AI playlist step.
+This is a reference implementation for porting to another Home Assistant setup, not a one-click
+installer. The on-screen text and web UI are in Portuguese because the production install serves a
+Portuguese-speaking household.
+
+## Features
+
+- Renders a 1920x1080 photo slideshow frame with clock, current temperature and a 3-day Open-Meteo forecast, plus EXIF date and reverse-geocoded city of each photo.
+- Switches automatically to a "now playing" frame (album art, blurred background, accent color extracted from the cover, artist/title/album) when the trigger speaker plays.
+- Falls back from YouTube Music album art to the YouTube video thumbnail, then to Deezer artist images.
+- Overlays an "armed" recipe next to the album art, auto-sizing the font (31 px down to 20 px) to fit.
+- Condenses plain-text recipes for TV with deterministic heuristics: a dedicated `TV:` block wins, otherwise quantity-bearing ingredients and critical time/temperature/caution steps are prioritized.
+- Serves a mobile web app (FastAPI) to pick a recipe, arm it on the TV and request a new AI-curated playlist, or jump straight to one of 5 random existing playlists.
+- Disarms the recipe automatically after a 30-minute window with no play or after the speaker has been stopped for 15 minutes, never while music is playing.
+
+## How it works
+
+The TV Chromecast only ever displays one URL, `http://<ha-host>:8123/local/current.jpg?t=<timestamp>`.
+Everything else decides which process writes that file.
 
 ```
-                          ┌──────────────────────────────────────────────┐
-   DEFAULT STATE  ───────▶│  PHOTO SLIDESHOW                              │
-   (no music)             │  your photos + clock + 3-day weather          │
-                          │  slideshow_gen.py → current.jpg → Chromecast  │
-                          └──────────────────────────────────────────────┘
-                                        ▲                 │
-                  music stops           │                 │  music starts on the speaker
-                  (back to photos)      │                 ▼
-                          ┌──────────────────────────────────────────────┐
-   MUSIC STATE    ───────▶│  NOW PLAYING                                  │
-   (speaker active)       │  album art of the current track (full screen) │
-                          │  musica_slideshow.py → current.jpg → Chromecast│
-                          │                                              │
-                          │   + optional RECIPE OVERLAY (right half)      │
-                          │     shown only while a recipe is "armed"      │
-                          └──────────────────────────────────────────────┘
+ trigger speaker ──state──▶ Home Assistant automations ──play_media──▶ TV Chromecast
+ (media_player)              │            │                               ▲
+                             │ starts     │ starts                        │ /local/current.jpg
+                             ▼            ▼                               │
+                   slideshow_gen.py   start_musica_helper.py ─▶ musica_slideshow.py
+                   (photo mode)       reads .music_state.txt    (music mode, reads
+                             │                                   music_recipe.json each frame)
+                             └──────────── write /config/www/current.jpg ───┘
+
+ phone ─▶ web app (app/app.py) ──REST──▶ Home Assistant: shell_command curls
+            │                              /api/pending_recipe -> music_recipe.json,
+            │                              input_boolean on, timer start
+            └─ docker exec ─▶ headless LLM worker + YouTube Music MCP ─▶ playlist URL
 ```
 
-- **Photo slideshow** is what you see almost all the time. It's the base layer.
-- **Music mode** takes over automatically when your speaker starts playing, and reverts when it stops. Nothing manual.
-- **The recipe overlay** is opt-in: you "arm" a recipe (by chat or via the web app), and it rides on top of music mode for one cooking session, then disarms itself.
+Non-obvious decisions:
 
-## Why this is a little absurd
+- **One image file, two renderers.** Only one renderer runs at a time; the automations kill one and
+  start the other. The Chromecast never knows the difference.
+- **Home Assistant pulls the recipe.** The web app never writes to the Home Assistant host and holds no
+  SSH key; a `shell_command` curls `/api/pending_recipe`. The app only carries a Home Assistant token.
+- **Metadata goes through a `command_line` sensor**, because `shell_command` does not render Jinja2.
+  The sensor writes `state|media_content_id|artist|title|entity_picture|album` to `/config/.music_state.txt`.
+- **The TV frame is pushed twice** (about +4 s and +12 s) because the speaker can update the content id
+  before artist/title, which otherwise shows the previous track.
+- **Playlist generation is the only AI step** and is isolated: if it fails, the recipe is still armed.
 
-This is not "a recipe app". It is a small home-lab Rube Goldberg machine that happens to be useful while cooking:
+More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/SYSTEM_CONTRACTS.md](docs/SYSTEM_CONTRACTS.md)
+and [docs/AI_PORTING_GUIDE.md](docs/AI_PORTING_GUIDE.md).
 
-- a Home Assistant box renders JPEG frames with PIL;
-- a Chromecast-connected kitchen TV displays one changing `current.jpg`;
-- a separate Chromecast Audio acts as the trigger;
-- Home Assistant reads live track metadata and starts the music renderer;
-- the music renderer pulls album art and redraws the TV frame;
-- a recipe website condenses and arms a TV-optimized recipe overlay;
-- a headless AI DJ worker ("Rolo" in the original build) creates a YouTube Music playlist from the selected recipe, requested vibe, and available listening context;
-- the recipe disarms itself after the session;
-- the TV falls back to family photos when the music stops.
-
-The important part is that the chaos is intentionally split into small contracts. A strong coding agent can port the system by replacing adapters, not by reverse-engineering one giant ball of automation spaghetti.
-
-## The pieces
-
-| Piece | Role | Where it runs |
-|---|---|---|
-| `slideshow/slideshow_gen.py` | Photo slideshow renderer (PIL): photo + clock + weather | Home Assistant (Chromecast host) |
-| `slideshow/musica_slideshow.py` | Music-mode renderer: album art + optional recipe overlay | Home Assistant |
-| `slideshow/start_musica_helper.py` | Launches the music renderer with current track metadata | Home Assistant |
-| `homeassistant/*.yaml` | The state machine: triggers on the speaker, casts the image, arms/disarms recipes | Home Assistant config |
-| `app/` | **Web app**: pick a recipe, set a vibe, arm it + get a playlist | any Docker host |
-| AI DJ worker / `Rolo` | Headless LLM that curates the YouTube Music playlist | any Docker host |
-
-## Repository map
-
-| Path | What is in it |
+| Path | Contents |
 |---|---|
-| `app/` | FastAPI web app for recipes, playlist jobs, quick playlist shortcuts, and `/api/pending_recipe` |
-| `homeassistant/` | Sanitized YAML snippets for shell commands, command-line sensors, timers, booleans, and automations |
-| `slideshow/` | Photo renderer, music renderer, and music helper scripts |
-| `docs/AI_PORTING_GUIDE.md` | Step-by-step guide for another AI/coder to adapt the build |
-| `docs/SYSTEM_CONTRACTS.md` | File formats, routes, entity placeholders, timing invariants, and security boundaries |
-| `docs/ARCHITECTURE.md` | Full data flow and implementation gotchas |
-| `preview/` | Real/generated preview frames used to judge TV layout |
-| `design/` | Extracted UI components and visual tokens from the recipe web app |
-| `examples/` | Small portable examples, including an active recipe JSON |
+| `app/` | FastAPI web app, Dockerfile, compose example, `.env.example` |
+| `slideshow/` | Photo renderer, music renderer, music helper (run inside Home Assistant) |
+| `homeassistant/` | Sanitized `configuration.yaml` and `automations.yaml` snippets |
+| `examples/` | Sample active recipe JSON |
+| `docs/` | Architecture, contracts, porting guide |
+| `design/` | UI components and color tokens extracted from the web app |
+| `preview/` | Real and mock-up TV frames used to choose the layout |
 
-## If you're using an AI to port this
+## Requirements
 
-This is the recommended way to reuse the project. Do not start by manually copying YAML line by line. Clone the repo, point a strong coding agent at it, and ask it to adapt the reference build to your Home Assistant entities, Chromecast targets, Docker host, recipe folder, and music provider.
+- Home Assistant with shell access to `/config` and Python 3 with Pillow (the renderers run there).
+- A Chromecast on the TV and a separate `media_player` used as the music trigger (for example a Chromecast Audio).
+- Docker host for the web app (image is based on `python:3.11-slim`).
+- Home Assistant long-lived access token.
+- For AI playlists: a container running a headless `claude` CLI with a YouTube Music MCP server, reachable via the Docker socket.
+- For the "play now" shortcuts: a `ytmusicapi` auth file.
+- Internet access to Open-Meteo, BigDataCloud reverse geocoding, YouTube and Deezer (no API keys needed).
 
-Use a capable model with long-context code understanding, such as Claude Opus or another advanced coding model. A weak model will likely miss the timing contracts and "one image file, two renderers" design, then create a pile of broken automations. Congratulations, that's how you invent suffering.
+## Quick start
 
-Start here:
+1. Clone the repo:
 
-1. [`docs/AI_PORTING_GUIDE.md`](docs/AI_PORTING_GUIDE.md) — the task brief for an AI agent.
-2. [`docs/SYSTEM_CONTRACTS.md`](docs/SYSTEM_CONTRACTS.md) — file formats, service contracts, entity placeholders, and invariants.
-3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the full data flow and Chromecast gotchas.
-4. `homeassistant/*.yaml` — sanitized snippets to adapt.
-5. `app/docker-compose.example.yml` — web app runtime shape.
+   ```bash
+   git clone https://github.com/cascodigital/kitchen-cast.git
+   cd kitchen-cast
+   ```
 
-The most important rule: **do not redesign the system first**. Port the adapters around the existing contracts:
+2. Copy `slideshow/*.py` to Home Assistant `/config/`, merge `homeassistant/configuration.snippets.yaml`
+   and `homeassistant/automations.snippets.yaml`, and replace `media_player.SALA`, `media_player.COZINHA`,
+   `HA_HOST` and `APP_HOST` with your values. Edit `FOTOS_DIR` / `FOTOS_JSON` in `slideshow_gen.py` to
+   point at your photos and a JSON list of their file names.
 
-- One displayed image: `/config/www/current.jpg`
-- One music metadata file: `/config/.music_state.txt`
-- One active recipe file: `/config/music_recipe.json`
-- One TV display target: a Chromecast-capable `media_player`
-- One music trigger target: a different `media_player`
+3. Configure and start the web app:
 
-## How a cook works (the web app)
+   ```bash
+   cd app
+   cp .env.example .env                                   # set HASS_TOKEN
+   cp docker-compose.example.yml docker-compose.yml       # set HASS_URL and volume paths
+   docker compose up -d --build
+   ```
 
-1. Open the site, tap a recipe.
-2. Type a vibe for the playlist (or leave blank), **or** tap one of 5 random existing playlists for instant music.
-3. The app condenses the recipe for TV, **arms it** (writes the recipe overlay, starts a 30-minute window), and asks Rolo/the AI DJ worker to build a playlist.
-4. You get a link to the ready playlist. You press play on your speaker.
-5. Music mode kicks in → album art + your recipe on the kitchen TV. When you're done, it disarms and goes back to photos.
+4. Check that it is up:
 
-The AI DJ step is intentionally replaceable. In the original setup, Rolo is a headless LLM worker with access to YouTube Music tools. It searches tracks, uses recommendations, creates a playlist, adds songs, and returns a `music.youtube.com/playlist?...` URL. If you use Spotify, Jellyfin, Navidrome, local MPD, or anything else, replace that worker contract instead of touching the Home Assistant display state machine.
+   ```bash
+   curl http://localhost:8095/healthz
+   # ok
+   ```
 
-## Why it's built this way
+Then open `http://<docker-host>:8095/`, pick a recipe and start music on the trigger speaker.
 
-- **Music is the only trigger.** No new habit to learn — you already play music when you cook.
-- **The renderer never changes for the front-end.** Arming a recipe just writes one JSON file the renderer reads each frame. Chat, web app, or a future button all do the same thing.
-- **No secrets in the web-facing app.** It never holds an SSH key to the Chromecast host; Home Assistant *pulls* the recipe over HTTP (`shell_command` + `curl`). The app only carries a Home Assistant REST token.
-- **Playlist curation is the only "AI" step**, and it's delegated to Rolo/a headless LLM worker — everything else is deterministic.
+## Configuration
 
-## Setup (high level)
+Web app (`app/app.py`, environment variables):
 
-1. **Home Assistant** with a Chromecast (or Chromecast Audio as the trigger speaker + a Chromecast on the TV). Drop the `slideshow/` scripts in `/config`, add the `homeassistant/` snippets, set your speaker/TV entity ids and weather coordinates (`WEATHER_LAT`/`WEATHER_LON`).
-2. **Recipes**: one `.txt` per recipe in a folder (ingredient/step lines).
-3. **AI worker**: a container with a headless LLM CLI + a YouTube Music tool that can create playlists.
-4. **Web app**: `app/` — copy `docker-compose.example.yml`, fill the volume paths and `HASS_TOKEN`, `docker compose up -d --build`.
+| Variable / key | Required | Default | Description |
+|---|---|---|---|
+| `HASS_TOKEN` | Yes | empty | Home Assistant long-lived access token |
+| `HASS_URL` | No | `http://homeassistant.local:8123` | Home Assistant base URL |
+| `RECIPES_DIR` | No | `/recipes` | Folder of `.txt` recipes, one file per recipe |
+| `WORKER_CONTAINER` | No | `claude-worker` | Container that runs the headless LLM CLI for playlists |
+| `YTM_MCP_CONFIG` | No | `/home/claude/ai/mcp/youtube-music/mcp-config.json` | MCP config path inside the worker container |
+| `YTM_AUTH_FILE` | No | `/auth/ytmusic_auth.json` | `ytmusicapi` auth file used to list existing playlists |
+| `MAX_TV_LINES` | No | `12` | Maximum recipe lines sent to the TV |
+| `QUICK_COUNT` | No | `5` | Number of random "play now" playlist shortcuts |
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full data flow and the gotchas (there are a few good ones).
+Renderers (`slideshow/*.py`):
 
-## Status
+| Variable / key | Required | Default | Description |
+|---|---|---|---|
+| `WEATHER_LAT` / `WEATHER_LON` | No | `40.7128` / `-74.0060` | Forecast coordinates (placeholder city) |
+| `FOTOS_DIR`, `FOTOS_JSON` (constants) | Yes | `/media/media/Picures`, `.../fotos.json` | Photo folder and JSON array of photo paths |
+| `FONT_DIR` (constant) | No | Home Assistant OS DejaVu fonts path | TrueType fonts; falls back to the PIL default font |
+| `INTERVAL` (constant) | No | `25` photo / `15` music | Seconds between frames |
 
-Personal lab project, built incrementally and developed over time. The repository is meant to be readable, adaptable, and honest about the hard parts. It is not maintained as a generic installer.
+Home Assistant entities used: `input_boolean.recipe_armed`, a recipe timer, `sensor.music_state_writer`,
+the `shell_command`s in the snippet, and the scripts `slideshow_foto_atual` / `slideshow_foto_atual_force`
+(not included; they call `media_player.play_media` with the cache-busted image URL).
 
-The repo includes screenshots and design artifacts because this project makes more sense when you can see the kitchen TV, not just read YAML and pretend that is emotionally healthy.
+## Usage
+
+Recipe files are plain text, one line per ingredient or step (a leading `-` is stripped). To control
+exactly what reaches the TV, add a block:
+
+```text
+TV:
+Chicken hearts: 700 g
+Oven: 200 C, preheated
+Turn at 15 min
+notes:
+...
+```
+
+The overlay can also be armed without the web app by writing a file like
+[examples/music_recipe.example.json](examples/music_recipe.example.json) to `/config/music_recipe.json`.
+
+Web app routes:
+
+| Route | Purpose |
+|---|---|
+| `GET /` | Recipe list |
+| `GET /r/<id>` | Recipe view with playlist form and shortcuts |
+| `POST /cook` | Arm the recipe and start a playlist job |
+| `GET /job/<id>` | Poll job status |
+| `GET /quick?rid=<id>&list=<playlist_id>` | Arm the recipe and redirect to an existing playlist |
+| `GET /api/pending_recipe` | Latest armed recipe JSON, pulled by Home Assistant |
+| `GET /healthz` | Liveness check |
+
+## Limitations
+
+- Reference build, not an installer: entity ids, paths and the font directory are hard-coded and must be adapted.
+- `app.py` starts `timer.skcoz_recipe_window`, while the snippet defines `timer.recipe_window`; align the two ids when porting.
+- The `slideshow_foto_atual` scripts that cast the image to the TV are referenced but not included.
+- Job and recipe state live in memory (single uvicorn worker, single user); a restart clears them.
+- The web app has no authentication and needs the Docker socket; keep it on a trusted network or behind an auth proxy.
+- Playlist creation depends on a headless `claude` CLI with a YouTube Music MCP server; other providers need a new worker call and URL parser.
+- Weather timezone is fixed to `America/Sao_Paulo` in the Open-Meteo requests.
+- UI and on-screen TV text are Portuguese only.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

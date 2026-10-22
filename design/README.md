@@ -1,5 +1,9 @@
-# Cozinha — Kitchen Cast (Design System)
+# Kitchen Cast design system
 
-Componentes extraidos de `app/app.py` para iterar visualmente em ferramentas de design. O CSS e baseado no site real (tokens mel/uva/coral, Fraunces + Inter), mas sem dominio pessoal.
+Components extracted from `app/app.py` for visual iteration in design tools. The CSS matches the
+live web app (honey/grape/coral color tokens, Fraunces + Inter) without any personal domain.
 
-Grupos: Foundations, Navigation, Recipes, Forms, Actions, Status, Pages.
+The sample copy inside the components is Portuguese on purpose: it mirrors the text the
+production web app shows to its Portuguese-speaking users.
+
+Groups: Foundations, Navigation, Recipes, Forms, Actions, Status, Pages.

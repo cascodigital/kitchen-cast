@@ -1,12 +1,12 @@
-# Trechos para o automations.yaml.
-# media_player.SALA   = seu Chromecast Audio (gatilho, onde a musica toca)
-# media_player.COZINHA = seu Chromecast na TV (onde a imagem aparece)
-# Os scripts slideshow_foto_atual / _force fazem media_player.play_media da imagem
-# http://HA_HOST:8123/local/current.jpg?t=<timestamp> no media_player.COZINHA.
+# Snippets for automations.yaml.
+# media_player.SALA    = your Chromecast Audio (trigger, where the music plays)
+# media_player.COZINHA = your Chromecast on the TV (where the image is shown)
+# The slideshow_foto_atual / _force scripts call media_player.play_media with the image
+# http://HA_HOST:8123/local/current.jpg?t=<timestamp> on media_player.COZINHA.
 
-# ENTRA no modo musica quando a sala comeca a tocar
+# ENTER music mode when the speaker starts playing
 - id: musica_slideshow_start
-  alias: Slideshow - Modo Musica (sala tocando)
+  alias: Slideshow - Music mode (speaker playing)
   triggers:
   - {trigger: state, entity_id: media_player.SALA, to: playing}
   - {trigger: state, entity_id: media_player.SALA, attribute: media_content_id}
@@ -15,19 +15,19 @@
   conditions:
   - {condition: state, entity_id: media_player.SALA, state: playing}
   actions:
-  - {delay: {seconds: 4}}                                  # deixa a metadata estabilizar
+  - {delay: {seconds: 4}}                                  # let the metadata settle
   - {action: homeassistant.update_entity, target: {entity_id: sensor.music_state_writer}}
   - {delay: {seconds: 1}}
   - {action: shell_command.start_musica_slideshow}
   - {delay: {seconds: 4}}
-  - {action: script.slideshow_foto_atual_force}           # 1o push da capa pra TV
+  - {action: script.slideshow_foto_atual_force}           # 1st push of the cover to the TV
   - {delay: {seconds: 12}}
-  - {action: script.slideshow_foto_atual_force}           # 2o push: evita "uma musica atras"
+  - {action: script.slideshow_foto_atual_force}           # 2nd push: avoids the "one song behind" bug
   mode: restart
 
-# VOLTA pro album de fotos quando a sala para
+# RETURN to the photo album when the speaker stops
 - id: musica_slideshow_stop
-  alias: Slideshow - Voltar para fotos (sala parou)
+  alias: Slideshow - Back to photos (speaker stopped)
   triggers:
   - {trigger: state, entity_id: media_player.SALA, to: ["paused","idle","off","unavailable"]}
   actions:
@@ -36,9 +36,9 @@
   - {action: shell_command.start_slideshow_gen}
   mode: single
 
-# DESARMA a receita: janela de 30min expirou sem play, ou cozinha encerrou (sala parada 15min)
+# DISARM the recipe: 30-minute window expired with no play, or cooking ended (speaker stopped 15 min)
 - id: recipe_disarm
-  alias: Receita - desarmar
+  alias: Recipe - disarm
   triggers:
   - {trigger: event, event_type: timer.finished, event_data: {entity_id: timer.recipe_window}}
   - {trigger: state, entity_id: media_player.SALA, to: ["idle","off","unavailable"], for: "00:15:00"}

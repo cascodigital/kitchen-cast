@@ -1,12 +1,12 @@
-import os
 #!/usr/bin/env python3
+"""Photo-mode renderer: photo + clock + 3-day weather written to current.jpg."""
 import json, random, os, time, urllib.request, datetime
 
 FOTOS_DIR  = "/media/media/Picures"
 OUT_FILE   = "/config/www/current.jpg"
 TMP_IMG    = "/config/www/.current_tmp.jpg"
 FOTOS_JSON = "/media/media/Picures/fotos.json"
-LAT, LON   = float(os.environ.get("WEATHER_LAT","40.7128")), float(os.environ.get("WEATHER_LON","-74.0060"))  # defina suas coordenadas
+LAT, LON   = float(os.environ.get("WEATHER_LAT","40.7128")), float(os.environ.get("WEATHER_LON","-74.0060"))  # set your coordinates
 INTERVAL   = 25
 
 FONT_DIR  = "/usr/local/lib/python3.14/site-packages/aioslimproto/font"
@@ -40,10 +40,10 @@ def fetch_weather():
     try:
         with urllib.request.urlopen(url, timeout=10) as r:
             data = json.loads(r.read())
-        print(f"[clima] ok: {data['daily']['weathercode']}")
+        print(f"[weather] ok: {data['daily']['weathercode']}")
         return data
     except Exception as e:
-        print(f"[clima] falhou: {e}")
+        print(f"[weather] failed: {e}")
         return None
 
 def shadow_white(draw, pos, text, font):
@@ -92,7 +92,7 @@ def reverse_geocode(lat, lon):
         print(f"[geo] {lat:.2f},{lon:.2f} → {city}")
         return city
     except Exception as e:
-        print(f"[geo] falhou: {e}")
+        print(f"[geo] failed: {e}")
         _geocache[key] = ""
         return ""
 
@@ -103,7 +103,7 @@ def get_photo_meta(foto_path):
     folder_name = os.path.basename(os.path.dirname(foto_path.rstrip(os.sep)))
     try:
         img = Image.open(foto_path)
-        # Suporta _getexif() legado e getexif() novo
+        # Support both legacy _getexif() and newer getexif()
         try:
             raw_exif = img._getexif()
         except Exception:
@@ -175,7 +175,7 @@ def make_composite(foto_path, weather, photo_meta=("", "")):
         data_w = draw.textlength(data, font=f_data)
         shadow_white(draw, (48 + hora_w + 24 + data_w + 18, 52), temp_str, f_temp)
 
-    # ── Superior direito: data + cidade da foto ──────────────────────────
+    # ── Top right: photo date + city ──────────────────────────────────
     date_taken, city, folder_name = (photo_meta + ("", "", ""))[:3]
     if date_taken or city or folder_name:
         f_meta_city = get_font(bold=True,  size=34)
@@ -242,9 +242,9 @@ def main():
         try:
             photo_meta = get_photo_meta(foto_path)
             make_composite(foto_path, weather, photo_meta)
-            print(f"[{datetime.datetime.now():%H:%M:%S}] {'sem-clima' if not weather else 'ok'} {foto} | meta={photo_meta}")
+            print(f"[{datetime.datetime.now():%H:%M:%S}] {'no-weather' if not weather else 'ok'} {foto} | meta={photo_meta}")
         except Exception as e:
-            print(f"Erro: {e}")
+            print(f"Error: {e}")
 
         elapsed = time.time() - t0
         idx += 1

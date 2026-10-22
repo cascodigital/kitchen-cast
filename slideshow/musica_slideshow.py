@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-musica_slideshow.py - Modo Música para o Slideshow da Cozinha
-Troca as fotos por imagens do artista enquanto o Chromecast da sala toca música.
-Lê ARTIST, TITLE, VIDEO_ID, ENTITY_PIC, ALBUM via variáveis de ambiente.
+musica_slideshow.py - music mode for the kitchen slideshow.
+Replaces the photos with album/artist art while the trigger speaker plays music.
+Reads ARTIST, TITLE, VIDEO_ID, ENTITY_PIC, ALBUM from environment variables.
 """
 import os, sys, time, signal, json, random, datetime
 import urllib.request, urllib.parse, urllib.error
@@ -13,7 +13,7 @@ LAT, LON = float(os.environ.get("WEATHER_LAT","40.7128")), float(os.environ.get(
 try:
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
 except ImportError:
-    sys.exit("[musica] PIL não encontrado")
+    sys.exit("[musica] PIL not found")
 
 OUT_FILE = "/config/www/current.jpg"
 TMP_FILE = "/config/www/.music_tmp.jpg"
@@ -48,7 +48,7 @@ def fetch_current_temp():
             data = json.loads(r.read())
         return data["current"]["temperature_2m"]
     except Exception as e:
-        print(f"[temp] falhou: {e}")
+        print(f"[temp] failed: {e}")
         return None
 
 def shadow(draw, pos, text, font, color=(255, 255, 255)):
@@ -89,7 +89,7 @@ def load_recipe_overlay():
         with open(RECIPE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        print(f"[receita] erro lendo {RECIPE_FILE}: {e}")
+        print(f"[recipe] error reading {RECIPE_FILE}: {e}")
         return None
 
     if not data.get("enabled", False):
@@ -105,7 +105,7 @@ def load_recipe_overlay():
         lines = []
 
     if not title or not lines:
-        print("[receita] arquivo ativo sem title/lines validos")
+        print("[recipe] active file has no valid title/lines")
         return None
 
     return {"title": title, "lines": lines}
@@ -180,7 +180,7 @@ def fetch_deezer_images(artist_name, max_images=4):
             if len(imgs) >= max_images:
                 break
 
-        # Se não achou match exato, pega o primeiro resultado mesmo
+        # No exact match: fall back to the first result
         if not imgs:
             for a in data.get("data", [])[:2]:
                 for size in ["picture_xl", "picture_big"]:
@@ -194,12 +194,12 @@ def fetch_deezer_images(artist_name, max_images=4):
                 if imgs:
                     break
     except Exception as e:
-        print(f"[deezer] erro: {e}")
+        print(f"[deezer] error: {e}")
     return imgs
 
 
 def fit_fill(img, w, h):
-    """Redimensiona e corta a imagem para preencher w x h (cover)."""
+    """Resize and crop the image to fill w x h (cover)."""
     ratio = max(w / img.width, h / img.height)
     nw, nh = int(img.width * ratio), int(img.height * ratio)
     img = img.resize((nw, nh), Image.LANCZOS)
@@ -209,32 +209,32 @@ def fit_fill(img, w, h):
 
 
 def _brighten(c, target=235):
-    """Sobe o brilho da cor mantendo o matiz, para legibilidade sobre scrim escuro."""
+    """Raise the color brightness while keeping the hue, for legibility on a dark scrim."""
     mx = max(c) or 1
     f = target / mx
     return tuple(min(255, int(v * f)) for v in c)
 
 
 def dominant_color(img, default=ACCENT_YELLOW):
-    """Extrai a cor de destaque da capa: a mais frequente que não seja escura nem cinza."""
+    """Extract the cover accent color: the most frequent one that is neither dark nor gray."""
     try:
         small = img.convert("RGB").resize((80, 80))
         q = small.quantize(colors=8, method=Image.FASTOCTREE)
         pal = q.getpalette()
         for count, idx in sorted(q.getcolors(), reverse=True):
             r, g, b = pal[idx * 3: idx * 3 + 3]
-            if max(r, g, b) < 60:                  # escura demais
+            if max(r, g, b) < 60:                  # too dark
                 continue
-            if max(r, g, b) - min(r, g, b) < 40:   # cinza demais
+            if max(r, g, b) - min(r, g, b) < 40:   # too gray
                 continue
             return _brighten((r, g, b))
     except Exception as e:
-        print(f"[cor] fallback: {e}")
+        print(f"[color] fallback: {e}")
     return default
 
 
 def blurred_background(img, blur=38, darken=70):
-    """Fundo cinematográfico: capa em tela cheia, desfoque pesado e véu escuro."""
+    """Cinematic background: full-screen cover, heavy blur and a dark veil."""
     bg = fit_fill(img.copy(), IMG_W, IMG_H).filter(ImageFilter.GaussianBlur(blur))
     canvas = bg.convert("RGBA")
     canvas.alpha_composite(Image.new("RGBA", (IMG_W, IMG_H), (8, 8, 14, darken)))
@@ -242,7 +242,7 @@ def blurred_background(img, blur=38, darken=70):
 
 
 def rounded_card(canvas, img, box, radius=24, shadow_blur=24, accent=None):
-    """Cola a imagem como card arredondado com drop shadow e borda sutil."""
+    """Paste the image as a rounded card with a drop shadow and a subtle border."""
     x, y, w, h = box
     card = fit_fill(img.copy(), w, h).convert("RGBA")
 
@@ -262,7 +262,7 @@ def rounded_card(canvas, img, box, radius=24, shadow_blur=24, accent=None):
 
 def draw_soft_text(canvas, pos, text, font, fill=(255, 255, 255),
                    shadow_alpha=190, blur=6, offset=(0, 3)):
-    """Texto com sombra real (camada borrada) em vez de sombra de pixel dura."""
+    """Text with a real (blurred layer) shadow instead of a hard pixel shadow."""
     x, y = pos
     sh = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     ImageDraw.Draw(sh).text((x + offset[0], y + offset[1]), text, font=font,
@@ -274,7 +274,7 @@ def draw_soft_text(canvas, pos, text, font, fill=(255, 255, 255),
 
 
 def ellipsize(text, font, max_w):
-    """Corta o texto com reticências se passar de max_w."""
+    """Truncate the text with an ellipsis if it exceeds max_w."""
     probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
     if probe.textlength(text, font=font) <= max_w:
         return text
@@ -283,10 +283,10 @@ def ellipsize(text, font, max_w):
     return (text.rstrip() + "…") if text else ""
 
 
-# Layout "dois quadrados": capa e (opcional) receita lado a lado, mesmo tamanho.
-SQUARE = 650          # lado dos quadrados
-SQUARE_Y = 150        # topo dos quadrados (abaixo do relógio)
-SQUARE_GAP = 70       # folga entre capa e receita
+# "Two squares" layout: cover and (optional) recipe side by side, same size.
+SQUARE = 650          # square side length
+SQUARE_Y = 150        # top of the squares (below the clock)
+SQUARE_GAP = 70       # gap between cover and recipe
 
 
 def draw_clock(canvas, accent, current_temp):
@@ -312,7 +312,7 @@ def centered_text(canvas, cx, y, text, font, fill, blur=6):
 
 
 def draw_bottom_bar(canvas, accent, artist, title, album):
-    """Barra preta inferior com 'tocando agora' centralizado."""
+    """Bottom black bar with a centered 'now playing' label."""
     draw = ImageDraw.Draw(canvas, "RGBA")
     for i in range(220):
         a = int(205 * (i / 220) ** 1.3)
@@ -328,7 +328,7 @@ def draw_bottom_bar(canvas, accent, artist, title, album):
 
 
 def fit_recipe(probe, recipe, max_w, max_h):
-    """Maior fonte (31→20) em que título + linhas (com wrap) cabem na altura."""
+    """Largest font size (31 to 20) at which title + wrapped lines fit the height."""
     for body in range(31, 19, -1):
         title_px = int(body * 1.32)
         bf = get_font(False, body)
@@ -338,7 +338,7 @@ def fit_recipe(probe, recipe, max_w, max_h):
             wrapped += wrap_line(probe, "•  " + ln, bf, max_w)
         if int(title_px * 1.7) + len(wrapped) * line_h <= max_h:
             return get_font(True, title_px), bf, line_h, title_px, wrapped
-    # piso de 20px: ainda estoura → corta e marca o excedente
+    # 20px floor: still overflowing, so truncate and mark the remainder
     body = 20
     title_px = int(body * 1.32)
     bf = get_font(False, body)
@@ -372,20 +372,20 @@ def make_frame(bg_img, artist, title, album="", current_temp=None):
     canvas = blurred_background(bg_img, blur=46, darken=110)
     draw = ImageDraw.Draw(canvas, "RGBA")
 
-    # Scrim superior suave para o relógio
+    # Soft top scrim behind the clock
     for i in range(110):
         draw.rectangle([(0, i), (IMG_W, i + 1)], fill=(0, 0, 0, int(130 * (1 - i / 110))))
     draw_clock(canvas, accent, current_temp)
 
     recipe = load_recipe_overlay()
     if recipe:
-        # Dois quadrados iguais: capa (esquerda) + receita (direita)
+        # Two equal squares: cover (left) + recipe (right)
         lx = (IMG_W - (2 * SQUARE + SQUARE_GAP)) // 2
         rounded_card(canvas, bg_img, (lx, SQUARE_Y, SQUARE, SQUARE), radius=26, accent=accent)
         draw_recipe_square(canvas, (lx + SQUARE + SQUARE_GAP, SQUARE_Y, SQUARE, SQUARE),
                            recipe, accent)
     else:
-        # Sem receita: capa centralizada
+        # No recipe: centered cover
         cx = (IMG_W - SQUARE) // 2
         rounded_card(canvas, bg_img, (cx, SQUARE_Y, SQUARE, SQUARE), radius=26, accent=accent)
 
@@ -400,7 +400,7 @@ running = True
 
 def stop(sig, frame):
     global running
-    print("[musica] sinal recebido, encerrando...")
+    print("[musica] signal received, shutting down...")
     running = False
 
 
@@ -422,23 +422,23 @@ def main():
     images = []
     image_source = "fallback"
 
-    # 1. Album art da URL pública do YouTube Music (entity_picture).
-    # Se a capa atual existir, usa só ela. Isso evita alternar para imagens ruins
-    # de artista/fallback enquanto uma capa correta está disponível.
+    # 1. Album art from the public YouTube Music URL (entity_picture).
+    # If the current cover exists, use only that. This avoids cycling to poor
+    # artist/fallback images while a correct cover is available.
     if entity_pic.startswith("http"):
         ep = entity_pic.replace("w544-h544", "w1920-h1080")
         img = fetch_image(ep)
         if img:
             images = [img]
             image_source = "album art"
-            print("[img] album art ok; usando apenas a capa atual")
+            print("[img] album art ok; using only the current cover")
 
-    # 2. YouTube thumbnail (maxres ou hq), apenas se a capa falhar.
+    # 2. YouTube thumbnail (maxres or hq), only if the cover failed.
     if not images and video_id:
         for q in ["maxresdefault", "hqdefault"]:
             img = fetch_image(f"https://img.youtube.com/vi/{video_id}/{q}.jpg")
             if img:
-                # Ignora thumbnail genérico do YT (todo preto/cinza)
+                # Skip the generic YouTube thumbnail (all black/gray)
                 arr = list(img.getdata())
                 if len(set(arr[::500])) > 10:
                     images = [img]
@@ -446,18 +446,18 @@ def main():
                     print(f"[img] youtube {q} ok")
                     break
 
-    # 3. Imagens do artista via Deezer, apenas se capa e YouTube falharem.
+    # 3. Artist images from Deezer, only if cover and YouTube both failed.
     if not images:
         images = fetch_deezer_images(artist, max_images=4)
         if images:
             image_source = "deezer artist"
 
     if not images:
-        print("[musica] sem imagens, usando fallback")
+        print("[musica] no images, using fallback")
         fb = Image.new("RGB", (IMG_W, IMG_H), (15, 15, 25))
         images = [fb]
 
-    print(f"[musica] {len(images)} imagem(ns), fonte={image_source}, ciclo {INTERVAL}s")
+    print(f"[musica] {len(images)} image(s), source={image_source}, cycle {INTERVAL}s")
 
     idx = 0
 
@@ -468,14 +468,14 @@ def main():
         try:
             make_frame(images[idx % len(images)], artist, title, album, current_temp)
         except Exception as e:
-            print(f"[musica] erro frame: {e}")
+            print(f"[musica] frame error: {e}")
         idx += 1
         for _ in range(INTERVAL):
             if not running:
                 break
             time.sleep(1)
 
-    print("[musica] encerrado.")
+    print("[musica] stopped.")
 
 
 if __name__ == "__main__":

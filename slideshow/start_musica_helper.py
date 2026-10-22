@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 start_musica_helper.py
-Lê o estado do media player de /config/.music_state.txt (escrito pelo sensor
-music_state_writer do HA via Jinja2 template) e inicia musica_slideshow.py.
+Reads the media player state from /config/.music_state.txt (written by the
+Home Assistant music_state_writer sensor via a Jinja2 template) and starts
+musica_slideshow.py.
 """
 import os, sys, subprocess, time
 
@@ -14,16 +15,16 @@ def read_state():
         mtime = os.path.getmtime(STATE_FILE)
         age = time.time() - mtime
         if age > 60:
-            print(f"[helper] AVISO: state file desatualizado ({age:.0f}s)")
+            print(f"[helper] WARNING: stale state file ({age:.0f}s)")
         content = open(STATE_FILE).read().strip()
-        # Formato: state|video_id|artist|title|entity_pic|album
+        # Format: state|video_id|artist|title|entity_pic|album
         parts = content.split("|")
         if len(parts) < 6:
-            print(f"[helper] Formato inválido: {repr(content)}")
-            # Verifica se o template não foi renderizado
+            print(f"[helper] Invalid format: {repr(content)}")
+            # Detect a template that was not rendered
             if "{{" in content:
-                print("[helper] ERRO: template não foi renderizado pelo HA!")
-                print("[helper] command_line sensor não suporta templates nesta versão.")
+                print("[helper] ERROR: template was not rendered by Home Assistant!")
+                print("[helper] command_line sensor does not support templates in this version.")
             return None
         return {
             "state":      parts[0].strip(),
@@ -34,10 +35,10 @@ def read_state():
             "album":      parts[5].strip(),
         }
     except FileNotFoundError:
-        print(f"[helper] {STATE_FILE} não existe ainda (aguardando sensor)")
+        print(f"[helper] {STATE_FILE} does not exist yet (waiting for sensor)")
         return None
     except Exception as e:
-        print(f"[helper] Erro ao ler state file: {e}")
+        print(f"[helper] Error reading state file: {e}")
         return None
 
 
@@ -49,10 +50,10 @@ def main():
     if not state:
         sys.exit(1)
 
-    print(f"[helper] Estado: {state['state']}")
+    print(f"[helper] State: {state['state']}")
 
     if state["state"] != "playing":
-        print("[helper] Não está tocando, abortando")
+        print("[helper] Not playing, aborting")
         sys.exit(0)
 
     artist    = state["artist"]
@@ -62,10 +63,10 @@ def main():
     album     = state["album"]
 
     if not artist and not title:
-        print("[helper] Artista/título vazios — template pode não ter renderizado")
+        print("[helper] Empty artist/title; template may not have rendered")
         sys.exit(1)
 
-    print(f"[helper] Iniciando: {artist} — {title}")
+    print(f"[helper] Starting: {artist} — {title}")
 
     env = os.environ.copy()
     env["ARTIST"]     = artist

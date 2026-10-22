@@ -1,8 +1,9 @@
 """
-cozinha — atendente de cozinha.
-Lista receitas (fonte live: skcoz/receitas montado RO), recebe instrucoes pro Rolo,
-arma a receita no HASS (modo musica) e delega a curadoria da playlist ao claude-worker.
-User escolhe a receita, manda, ve o link da playlist pronta e da play.
+Kitchen Cast web app ("cozinha").
+Lists recipes (live source: a read-only mounted recipe folder), accepts playlist
+instructions for the AI DJ worker ("Rolo"), arms the recipe in Home Assistant
+(music mode) and delegates playlist curation to a headless LLM worker container.
+The user picks a recipe, submits, gets the finished playlist link and presses play.
 """
 import os
 import re
@@ -30,15 +31,15 @@ QUICK_COUNT = int(os.environ.get("QUICK_COUNT", "5"))
 
 app = FastAPI(title="cozinha")
 
-# estado em memoria (1 worker uvicorn, 1 usuario)
+# in-memory state (single uvicorn worker, single user)
 JOBS = {}                      # job_id -> dict
-PENDING_RECIPE = {"json": None}  # ultima receita armada, servida ao HASS via curl
-_PL_CACHE = {"ts": 0, "items": []}  # cache da biblioteca de playlists do YT Music
+PENDING_RECIPE = {"json": None}  # last armed recipe, served to Home Assistant via curl
+_PL_CACHE = {"ts": 0, "items": []}  # cache of the YouTube Music playlist library
 
 
-# ---------------------------------------------------------------- playlists existentes
+# ---------------------------------------------------------------- existing playlists
 def get_existing_playlists():
-    """Lista playlists tocaveis da biblioteca (cache 10min). Degrada para [] em erro."""
+    """List playable library playlists (10 min cache). Degrades to [] on error."""
     if time.time() - _PL_CACHE["ts"] < 600 and _PL_CACHE["items"]:
         return _PL_CACHE["items"]
     try:
@@ -48,14 +49,14 @@ def get_existing_playlists():
         for p in yt.get_library_playlists(limit=200):
             pid = p.get("playlistId", "")
             title = p.get("title", "")
-            # so playlists reais (PL...); fora Liked Music (LM), Episodes (SE), etc.
+            # real playlists only (PL...); skip Liked Music (LM), Episodes (SE), etc.
             if pid.startswith("PL") and title:
                 items.append({"id": pid, "title": title})
         _PL_CACHE["ts"] = time.time()
         _PL_CACHE["items"] = items
         return items
     except Exception:
-        return _PL_CACHE["items"]  # ultima boa, ou [] se nunca carregou
+        return _PL_CACHE["items"]  # last good result, or [] if never loaded
 
 
 def quick_picks(n=QUICK_COUNT):
@@ -65,7 +66,7 @@ def quick_picks(n=QUICK_COUNT):
     return random.sample(items, min(n, len(items)))
 
 
-# ---------------------------------------------------------------- receitas
+# ---------------------------------------------------------------- recipes
 def prettify(rid: str) -> str:
     return rid.replace("_", " ").strip().title()
 
@@ -250,17 +251,17 @@ def hass_call(domain: str, service: str, data=None):
 
 
 def arm_recipe(recipe_json: dict):
-    # 1) deixa a receita pendente para o HASS puxar via curl
+    # 1) stage the recipe so Home Assistant can pull it via curl
     PENDING_RECIPE["json"] = recipe_json
-    # 2) HASS faz curl do /api/pending_recipe -> /config/music_recipe.json
+    # 2) Home Assistant curls /api/pending_recipe -> /config/music_recipe.json
     hass_call("shell_command", "fetch_music_recipe")
     time.sleep(1.5)
-    # 3) liga gate + inicia janela de 30min
+    # 3) turn on the gate + start the 30-minute window
     hass_call("input_boolean", "turn_on", {"entity_id": "input_boolean.recipe_armed"})
     hass_call("timer", "start", {"entity_id": "timer.skcoz_recipe_window"})
 
 
-# ---------------------------------------------------------------- playlist (IA)
+# ---------------------------------------------------------------- playlist (AI)
 PLAYLIST_TOOLS = (
     "mcp__youtube-music__search_songs,"
     "mcp__youtube-music__get_recommendations,"
@@ -299,7 +300,7 @@ def make_playlist(title: str, instructions: str) -> str:
     if m:
         pid = m.group(2) or m.group(1)
         return f"https://music.youtube.com/playlist?list={pid}"
-    raise RuntimeError("playlist URL nao encontrada no output do worker:\n" + out[-800:])
+    raise RuntimeError("playlist URL not found in worker output:\n" + out[-800:])
 
 
 # ---------------------------------------------------------------- job runner
@@ -365,7 +366,7 @@ header a.nav{color:var(--honey);text-decoration:none;font-size:14px;font-weight:
 .muted{color:var(--muted);font-size:13px}
 .ok{color:#86d68a}.err{color:#ff9b90}
 
-/* grid de receitas */
+/* recipe grid */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(146px,1fr));gap:13px}
 .card{
   position:relative;display:flex;flex-direction:column;gap:8px;
@@ -381,7 +382,7 @@ header a.nav{color:var(--honey);text-decoration:none;font-size:14px;font-weight:
 .card:hover{transform:translateY(-3px);border-color:rgba(245,177,61,.55);box-shadow:0 10px 26px -14px rgba(245,177,61,.4)}
 .card:active{transform:scale(.98)}
 
-/* pagina da receita */
+/* recipe page */
 .back{display:inline-block;color:var(--muted);text-decoration:none;font-size:14px;margin-bottom:10px}
 .rtitle{font-family:var(--serif);font-weight:700;font-size:30px;line-height:1.1;margin:2px 0 16px;display:flex;align-items:center;gap:12px}
 .rtitle .emj{font-size:30px}
@@ -414,7 +415,7 @@ button:active{transform:scale(.985)}
 .or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px;margin:26px 0 12px;text-transform:uppercase;letter-spacing:.14em}
 .or::before,.or::after{content:'';flex:1;height:1px;background:var(--line)}
 
-/* atalhos de playlist */
+/* playlist shortcuts */
 .quickwrap{display:flex;flex-direction:column;gap:9px}
 .quick{
   display:flex;align-items:center;gap:13px;
@@ -524,7 +525,7 @@ def quick(rid: str, list: str):
     if not p:
         return page("?", "<p class=err>Receita nao encontrada.</p>")
     try:
-        arm_recipe(build_recipe_json(rid, p))  # arme rapido; se falhar, ainda deixa tocar
+        arm_recipe(build_recipe_json(rid, p))  # quick arm; if it fails, still let the music play
     except Exception:
         pass
     return RedirectResponse(f"https://music.youtube.com/playlist?list={list}", status_code=302)
@@ -597,9 +598,9 @@ def job_status(job_id: str):
 
 @app.get("/api/pending_recipe")
 def pending_recipe():
-    """HASS faz curl daqui para /config/music_recipe.json."""
+    """Home Assistant curls this endpoint into /config/music_recipe.json."""
     if not PENDING_RECIPE["json"]:
-        return JSONResponse({"error": "nenhuma receita pendente"}, 404)
+        return JSONResponse({"error": "no pending recipe"}, 404)
     return JSONResponse(PENDING_RECIPE["json"])
 
 
