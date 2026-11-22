@@ -4,3 +4,4 @@ ytmusic_auth.json
 oauth.json
 __pycache__/
 *.pyc
+docs/REDDIT_POST_DRAFT.md

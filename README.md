@@ -32,7 +32,7 @@ Portuguese-speaking household.
 - Reads a hand-written `TV:` block from each plain-text recipe for the TV overlay, while the web page shows the full recipe.
 - Plays photos as a deck: every photo once per pass, consecutive photos from different folders whenever possible, reshuffled daily and reloaded when the photo list changes.
 - Serves a mobile web app (FastAPI) to pick a recipe, arm it on the TV and request a new AI-curated playlist, or jump straight to one of 5 random existing playlists.
-- Accepts an AI playlist only after the worker exits cleanly and an independent delivery check (the Rolo curator's `rolo_curate.py delivery`) confirms it.
+- Accepts an AI playlist only after the worker exits cleanly and an independent delivery check (the curation skill's `rolo_curate.py delivery`) confirms it.
 - Disarms the recipe automatically after a 30-minute window with no play or after the speaker has been stopped for 15 minutes, never while music is playing.
 
 ## How it works
@@ -95,7 +95,7 @@ and [docs/AI_PORTING_GUIDE.md](docs/AI_PORTING_GUIDE.md).
 - A Chromecast on the TV and a separate `media_player` used as the music trigger (for example a Chromecast Audio).
 - Docker host for the web app (image is based on `python:3.11-slim`).
 - Home Assistant long-lived access token.
-- For AI playlists: a container running a headless `claude` CLI with a YouTube Music MCP server, reachable via the Docker socket, plus the Rolo music-curation skill (a `SKILL.md` and its `rolo_curate.py`) inside that container.
+- For AI playlists: a container running a headless `claude` CLI with a YouTube Music MCP server, reachable via the Docker socket, plus an external DJ/curation skill (for example [rolo](https://github.com/cascodigital/rolo): a `SKILL.md` and its `rolo_curate.py`) inside that container.
 - For the "play now" shortcuts: a `ytmusicapi` auth file.
 - Internet access to Open-Meteo, BigDataCloud reverse geocoding, YouTube and Deezer (no API keys needed).
 
@@ -211,7 +211,7 @@ Web app routes:
 - Reference build, not an installer: entity ids, Home Assistant paths and the font directory are hard-coded and must be adapted.
 - The timer id is shared by the app (`RECIPE_TIMER_ENTITY`) and the snippets (`timer.recipe_window`); if you rename one, rename the other, or arming starts a timer that does not exist and the recipe is never auto-disarmed.
 - Recipes without a `TV:` block send their first lines unchanged; there is no automatic condensing.
-- AI playlists require the external Rolo skill and its `rolo_curate.py delivery` record inside the worker; without them every playlist job fails (the "play now" shortcuts still work).
+- AI playlists require an external DJ/curation skill (for example [rolo](https://github.com/cascodigital/rolo)) and its `rolo_curate.py delivery` record inside the worker; without them every playlist job fails (the "play now" shortcuts still work).
 - The `slideshow_foto_atual` scripts that cast the image to the TV are referenced but not included.
 - Job and recipe state live in memory (single uvicorn worker, single user); a restart clears them.
 - The web app has no authentication and needs the Docker socket; keep it on a trusted network or behind an auth proxy.
